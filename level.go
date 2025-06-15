@@ -2,7 +2,6 @@ package lognugget
 
 import (
 	"fmt"
-	"log/slog"
 )
 
 type LogLevel int
@@ -41,21 +40,5 @@ func (l LogLevel) String() string {
 		return str("WARN", l-LevelWarn)
 	default:
 		return str("ERROR", l-LevelError)
-	}
-}
-func (l LogLevel) ToSlogLeveler() slog.Leveler {
-	switch l {
-	case LevelDebug:
-		return slog.LevelDebug
-	case LevelInfo:
-		return slog.LevelInfo
-	case LevelWarn:
-		return slog.LevelWarn
-	case LevelError:
-		return slog.LevelError
-	case LevelFatal:
-		return slog.LevelError
-	default:
-		return slog.LevelInfo // Default to Info level if unknown
 	}
 }
