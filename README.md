@@ -1,4 +1,4 @@
-[![codecov](https://codecov.io/gh/architagr/LogNugget/graph/badge.svg?token=9VPDuFbSyQ)](https://codecov.io/gh/architagr/LogNugget)
+[![codecov](https://codecov.io/gh/architagr/LogNugget/branch/main/graph/badge.svg?token=9VPDuFbSyQ)](https://codecov.io/gh/architagr/LogNugget)
 
 # LogNugget
 
