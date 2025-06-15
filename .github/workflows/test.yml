@@ -11,8 +11,7 @@ jobs:
   fmt-vet-test:
     strategy:
       matrix:
-        # go-version: ["1.18", "1.19", "1.20", "1.21", "1.22", "1.23", "1.24"]
-        go-version: ["1.19"]
+        go-version: ["1.18", "1.19", "1.20", "1.21", "1.22", "1.23", "1.24"]
         platform: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.platform }}
     steps:
@@ -22,13 +21,17 @@ jobs:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
         uses: actions/checkout@v4
-      - run: ./.ci.gofmt.sh
-      - run: go mod tidy
-      - run: ./.ci.govet.sh
-      - run: go test ./... -race -v -covermode=atomic
+      - name: Format code
+        run: ./.ci.gofmt.sh
+      - name: Install dependencies
+        run: go mod tidy
+      - name: Run go vet
+        run: ./.ci.govet.sh
+      - name: Run go test
+        run: go test ./... -race -v -covermode=atomic
   coverage:
     runs-on: ubuntu-latest
-    # needs: fmt-vet-test
+    needs: fmt-vet-test
     steps:
       - name: Setup Go
         uses: actions/setup-go@v5
