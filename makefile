@@ -10,5 +10,6 @@ vet:
 	go vet ./...
 
 test-coverage:
-	go test ./... -coverprofile coverage.txt -covermode=atomic 
-	go tool cover -html=coverage.txt -o coverage.html
+	mkdir -p .out
+	go test ./... -coverprofile .out/coverage.txt -covermode=atomic 
+	go tool cover -html=.out/coverage.txt -o .out/coverage.html
