@@ -22,7 +22,7 @@ jobs:
           go-version: ${{ matrix.go-version }}
       - run: ./.ci.gofmt.sh
       - run: ./.ci.govet.sh
-      - run: go test -v -race ./...
+      - run: make test
   test:
     strategy:
       matrix:
@@ -38,7 +38,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Run tests
-        run: go test ./... -race -v -covermode=count
+        run: go test ./... -race -v -covermode=atomic
 
   coverage:
     strategy:
@@ -60,7 +60,7 @@ jobs:
       - name: Upload coverage report
         uses: codecov/codecov-action@v1.0.2
         with:
-          token: 1822df40-f576-4ae9-ab34-b8bdade485de
+          token: ${{ secrets.CODECOV_TOKEN }}
           file: ./coverage.txt
           flags: unittests
           name: codecov-umbrella
