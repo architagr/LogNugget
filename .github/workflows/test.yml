@@ -8,59 +8,44 @@ on:
 
 name: All builds
 jobs:
-  build:
+  fmt-vet-test:
     strategy:
       matrix:
-        go-version: ["1.18", "1.19", "1.20", "1.21", "1.22", "1.23"]
+        go-version: ["1.18", "1.19", "1.20", "1.21", "1.22", "1.23", "1.24"]
         platform: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
-      - run: ./.ci.gofmt.sh
-      - run: ./.ci.govet.sh
-      - run: go test -v -race ./...
-  test:
-    strategy:
-      matrix:
-        go-version: ["1.18", "1.19", "1.20", "1.21", "1.22", "1.23", "1.24"]
-        platform: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - name: Install Go
-        if: success()
-        uses: actions/setup-go@v3
-        with:
-          go-version: ${{ matrix.go-version }}
       - name: Checkout code
-        uses: actions/checkout@v2
-      - name: Run tests
-        run: go test ./... -race -v -covermode=count
-
+        uses: actions/checkout@v4
+      - name: Format code
+        run: ./.ci.gofmt.sh
+      - name: Install dependencies
+        run: go mod tidy
+      - name: Run go vet
+        run: ./.ci.govet.sh
+      - name: Run go test
+        run: go test ./... -race -v -covermode=atomic
   coverage:
-    strategy:
-      matrix:
-        go-version: ["1.18", "1.19", "1.20", "1.21", "1.22", "1.23", "1.24"]
-        platform: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.platform }}
+    runs-on: ubuntu-latest
+    needs: fmt-vet-test
     steps:
-      - name: Install Go
-        if: success()
-        uses: actions/setup-go@v3
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: 1.24
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Calc coverage
         run: |
           go test `go list ./... | grep -v examples` -coverprofile=coverage.txt -covermode=atomic
       - name: Upload coverage report
         uses: codecov/codecov-action@v1.0.2
         with:
-          token: 1822df40-f576-4ae9-ab34-b8bdade485de
+          token: ${{ secrets.CODECOV_TOKEN }}
           file: ./coverage.txt
           flags: unittests
           name: codecov-umbrella
