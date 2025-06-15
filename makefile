@@ -1,4 +1,7 @@
 .PHONY: fmt vet test test-coverage
+outDir := .out
+coverageFile := $(outDir)/coverage.txt
+coverageHTML := $(outDir)/coverage.html
 
 fmt:
 	gofmt -w .
@@ -11,5 +14,8 @@ vet:
 
 test-coverage:
 	mkdir -p .out
-	go test ./... -coverprofile .out/coverage.txt -covermode=atomic 
-	go tool cover -html=.out/coverage.txt -o .out/coverage.html
+	go test ./... -coverprofile $(coverageFile) -covermode=atomic 
+	go tool cover -html=$(coverageFile) -o $(coverageHTML)
+	@echo "Coverage report generated at $(coverageHTML)"
+	@echo "Opening coverage report in browser..."
+	open -a "Safari" $(coverageHTML)
