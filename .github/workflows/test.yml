@@ -8,48 +8,46 @@ on:
 
 name: All builds
 jobs:
-  build:
-    strategy:
-      matrix:
-        go-version: ["1.18", "1.19", "1.20", "1.21", "1.22", "1.23"]
-        platform: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ matrix.go-version }}
-      - run: ./.ci.gofmt.sh
-      - run: ./.ci.govet.sh
-      - run: make test
-  test:
+  fmt-vet:
     strategy:
       matrix:
         go-version: ["1.18", "1.19", "1.20", "1.21", "1.22", "1.23", "1.24"]
         platform: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.platform }}
     steps:
-      - name: Install Go
-        if: success()
-        uses: actions/setup-go@v3
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
-        uses: actions/checkout@v2
-      - name: Run tests
-        run: go test ./... -race -v -covermode=atomic
-
+        uses: actions/checkout@v4
+      - run: ./.ci.gofmt.sh
+      - run: ./.ci.govet.sh
+  test:
+    strategy:
+      matrix:
+        go-version: ["1.18", "1.19", "1.20", "1.21", "1.22", "1.23", "1.24"]
+        platform: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.platform }}
+    needs: fmt-vet
+    steps:
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - run: go test ./... -race -v -covermode=atomic
   coverage:
     runs-on: ubuntu-latest
+    needs: test
     steps:
-      - name: Install Go
-        if: success()
-        uses: actions/setup-go@v3
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
           go-version: 1.24
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Calc coverage
         run: |
           go test `go list ./... | grep -v examples` -coverprofile=coverage.txt -covermode=atomic

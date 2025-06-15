@@ -7,7 +7,7 @@ fmt:
 	gofmt -w .
 
 test:
-	go test -v -race ./...
+	go test ./... -race -v -covermode=atomic
 
 vet:
 	go vet ./...
