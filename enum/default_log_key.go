@@ -1,4 +1,4 @@
-package lognugget
+package enum
 
 type DefaultLogKey string
 
@@ -55,10 +55,3 @@ const (
 	DefaultLogKeyForwardedFor  DefaultLogKey = "forwarded_for"
 	DefaultLogKeyCustom        DefaultLogKey = "custom"
 )
-
-type LogAttrKey string
-type LogAttrValue any
-type LogAttr struct {
-	Key   LogAttrKey
-	Value LogAttrValue
-}

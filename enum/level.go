@@ -1,4 +1,4 @@
-package lognugget
+package enum
 
 import (
 	"fmt"
@@ -7,11 +7,12 @@ import (
 type LogLevel int
 
 const (
-	LevelDebug LogLevel = 0
-	LevelInfo  LogLevel = 2
-	LevelWarn  LogLevel = 4
-	LevelError LogLevel = 8
-	LevelFatal LogLevel = 16
+	LevelUnSet LogLevel = 1 << iota
+	LevelDebug LogLevel = 1 << iota
+	LevelInfo  LogLevel = 1 << iota
+	LevelWarn  LogLevel = 1 << iota
+	LevelError LogLevel = 1 << iota
+	LevelFatal LogLevel = 1 << iota
 )
 
 // String returns a name for the level.
