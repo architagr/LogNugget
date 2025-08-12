@@ -17,7 +17,7 @@ type JSONEncoder struct {
 	jsonFormatter *json.Encoder
 }
 
-func (e *JSONEncoder) Write(entry entry.LogEntry) ([]byte, error) {
+func (e *JSONEncoder) Write(entry *entry.LogEntry) ([]byte, error) {
 	// Implementation of JSON encoding logic
 	d, err := json.Marshal(entry.ToMap())
 	if err != nil {

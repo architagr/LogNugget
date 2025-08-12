@@ -12,7 +12,7 @@ var (
 )
 
 type Encoder interface {
-	Write(entry.LogEntry) ([]byte, error)
+	Write(*entry.LogEntry) ([]byte, error)
 }
 
 type EncoderFactory interface {

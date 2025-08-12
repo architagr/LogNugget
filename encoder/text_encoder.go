@@ -9,7 +9,7 @@ func NewTextEncoder() Encoder {
 
 type TextEncoder struct{}
 
-func (e *TextEncoder) Write(entry entry.LogEntry) ([]byte, error) {
+func (e *TextEncoder) Write(entry *entry.LogEntry) ([]byte, error) {
 	// Implementation of Text encoding logic
 	return nil, nil
 }

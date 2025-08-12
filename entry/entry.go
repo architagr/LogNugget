@@ -31,7 +31,6 @@ func init() {
 }
 
 type LogEntry struct {
-	lock sync.RWMutex
 	// data custom fields to be logged
 	data []model.LogAttr
 	// context current context object
