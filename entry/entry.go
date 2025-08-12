@@ -31,6 +31,7 @@ func init() {
 }
 
 type LogEntry struct {
+	lock sync.RWMutex
 	// data custom fields to be logged
 	data []model.LogAttr
 	// context current context object
@@ -84,11 +85,17 @@ func (e *LogEntry) WithFields(fields ...model.LogAttr) *LogEntry {
 	e.data = append(e.data, fields...)
 	return e
 }
+
 func (e *LogEntry) WithTime(t time.Time) *LogEntry {
 	if t.IsZero() {
 		t = customTime.TimeNow()
 	}
 	e.time = t
+	return e
+}
+
+func (e *LogEntry) WithContext(ctx context.Context) *LogEntry {
+	e.context = ctx
 	return e
 }
 
@@ -99,6 +106,12 @@ func (e *LogEntry) WithCaller(caller *runtime.Frame) *LogEntry {
 	e.caller = caller
 	return e
 }
+
+func (e *LogEntry) WithMessage(msg string) *LogEntry {
+	e.message = msg
+	return e
+}
+
 func (e *LogEntry) WithLevel(level enum.LogLevel) *LogEntry {
 	if level < enum.LevelDebug || level > enum.LevelError {
 		return e
@@ -112,8 +125,9 @@ func (e *LogEntry) Clone() *LogEntry {
 		WithFields(e.data...).
 		WithTime(e.time).
 		WithCaller(e.caller).
-		WithLevel(e.level)
-
+		WithLevel(e.level).
+		WithContext(e.context).
+		WithMessage(e.message)
 	return clone
 }
 func (e *LogEntry) IsEmpty() bool {
@@ -147,17 +161,6 @@ func (e *LogEntry) IsPanicLevel() bool {
 	return e != nil && e.level == enum.LevelFatal && e.err != nil && e.caller != nil && e.caller.Function == "runtime.panic"
 }
 
-func (e *LogEntry) IsLevelNotIn(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return false
-	}
-	for _, l := range levels {
-		if e.level == l {
-			return false
-		}
-	}
-	return true
-}
 func (e *LogEntry) IsContextEmpty() bool {
 	return e == nil || (e.context == nil || e.context == context.Background())
 }
@@ -207,39 +210,7 @@ func (e *LogEntry) IsValidForAnyLevel(levels ...enum.LogLevel) bool {
 	}
 	return false
 }
-func (e *LogEntry) IsValidForAllLevels(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return false
-	}
-	for _, level := range levels {
-		if e.level == level && !e.IsValidForLevel(level) {
-			return false
-		}
-	}
-	return true
-}
-func (e *LogEntry) IsValidForNoneOfLevels(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return true
-	}
-	for _, level := range levels {
-		if e.level == level && e.IsValidForLevel(level) {
-			return false
-		}
-	}
-	return true
-}
-func (e *LogEntry) IsValidForAnyOfLevels(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return false
-	}
-	for _, level := range levels {
-		if e.level == level && e.IsValidForLevel(level) {
-			return true
-		}
-	}
-	return false
-}
+
 func (e *LogEntry) IsValidForAllOfLevels(levels ...enum.LogLevel) bool {
 	if e == nil {
 		return false
@@ -252,17 +223,6 @@ func (e *LogEntry) IsValidForAllOfLevels(levels ...enum.LogLevel) bool {
 	return true
 }
 
-func (e *LogEntry) IsValidForAllOfLevelsNotIn(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return true
-	}
-	for _, level := range levels {
-		if e.level == level && e.IsValidForLevel(level) {
-			return false
-		}
-	}
-	return true
-}
 func (e *LogEntry) IsValidForNoneOfLevelsNotIn(levels ...enum.LogLevel) bool {
 	if e == nil {
 		return true
@@ -285,52 +245,22 @@ func (e *LogEntry) IsValidForAnyOfLevelsIn(levels ...enum.LogLevel) bool {
 	}
 	return false
 }
-func (e *LogEntry) IsValidForAllOfLevelsIn(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return false
-	}
-	for _, level := range levels {
-		if e.level == level && !e.IsValidForLevel(level) {
-			return false
-		}
-	}
-	return true
-}
-func (e *LogEntry) IsValidForNoneOfLevelsIn(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return true
-	}
-	for _, level := range levels {
-		if e.level == level && e.IsValidForLevel(level) {
-			return false
-		}
-	}
-	return true
-}
-func (e *LogEntry) IsValidForAnyOfLevelsNotIn(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return false
-	}
-	for _, level := range levels {
-		if e.level == level && e.IsValidForLevel(level) {
-			return false
-		}
-	}
-	return true
-}
 
 func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string, fields ...model.LogAttr) {
 	if config.GetConfig().MinLevel() > level || e.preProcessingStream == nil {
 		return
 	}
+
 	e.context = ctx
 	e.message = message
 	e.data = append(e.data, fields...)
 	e.level = level
+
 	e.preProcessingStream <- e
 }
 
 func (e *LogEntry) Debug(ctx context.Context, message string, fields ...model.LogAttr) {
+
 	e.Log(enum.LevelDebug, ctx, message, fields...)
 }
 
