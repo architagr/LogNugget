@@ -1,0 +1,229 @@
+package config
+
+import (
+	"context"
+	"io"
+	"os"
+	"time"
+
+	"github.com/architagr/lognugget/enum"
+)
+
+var (
+	DafaultLevel       enum.LogLevel      = enum.LevelInfo   // Default log level
+	DafaultEncoderType enum.LogEncodeType = enum.EncoderJSON // Default encoder type
+	DafaultAddSource   bool               = true             // Default to add source information
+	DefaultOutput      io.Writer          = os.Stdout        // Default output writer
+	DefaultTimeFormat  string             = time.RFC822      // Default time format for log entries
+	DafaultLogBuffer   int                = 20               // Default buffer size for logs
+)
+
+type StaticEnvFieldsParser = func() map[string]any
+type ContextFieldsParser = func(ctx context.Context) map[string]any
+
+func init() {
+	ResetConfig()
+}
+
+type Config struct {
+	minLevel            enum.LogLevel                 // Minimum log level to log
+	encoderType         enum.LogEncodeType            // Encoder type to use for logging
+	addSource           bool                          // Whether to add source information to logs
+	output              io.Writer                     // Output writer for logs
+	logBuffer           int                           // max Buffer size for logs
+	rate                time.Duration                 // Rate to push logs to output
+	extractStaticFields StaticEnvFieldsParser         // Function to extract static environment fields
+	staticEnvFields     map[string]any                // Static environment fields to log
+	contextParser       ContextFieldsParser           // Function to extract context fields
+	defaultFields       map[enum.DefaultLogKey]string // Default fields to log with every entry
+	timeFormat          string                        // Time format for log entries
+}
+
+var defaultConfig *Config
+
+// SetMinLevel sets the minimum log level for the logger
+func SetMinLevel(level enum.LogLevel) {
+	defaultConfig.minLevel = level
+}
+
+// SetMinLevel sets the minimum log level for the logger
+func SetTimeFormat(format string) {
+	defaultConfig.timeFormat = format
+}
+
+// SetEncoderType sets the encoder type for the logger
+func SetEncoderType(encoderType enum.LogEncodeType) {
+	defaultConfig.encoderType = encoderType
+}
+
+// SetAddSource sets whether to add source information to logs
+func SetAddSource(addSource bool) {
+	defaultConfig.addSource = addSource
+
+}
+
+// SetOutput sets the output writer for the logger
+func SetOutput(output io.Writer) {
+	if output == nil {
+		output = DefaultOutput
+	}
+	defaultConfig.output = output
+
+}
+
+// SetLogBuffer sets the maximum buffer size for logs
+func SetLogBuffer(size int) {
+	if size <= 0 {
+		size = 20 // Default buffer size
+	}
+	defaultConfig.logBuffer = size
+
+}
+
+// SetRate sets the rate at which logs are pushed to output
+func SetRate(rate time.Duration) {
+	if rate <= 0 {
+		rate = 1 * time.Second // Default rate is 1 sec
+	}
+	defaultConfig.rate = rate
+
+}
+
+// SetStaticEnvFieldsParser sets the function to extract static environment fields
+func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
+	defaultConfig.extractStaticFields = parser
+	if parser != nil {
+		defaultConfig.staticEnvFields = defaultConfig.extractStaticFields()
+	} else {
+		defaultConfig.staticEnvFields = nil
+	}
+
+}
+
+// SetContextFieldsParser sets the function to extract context fields
+func SetContextFieldsParser(parser ContextFieldsParser) {
+	defaultConfig.contextParser = parser
+
+}
+
+// SetDefaultFields sets the default fields to log with every entry
+func SetDefaultFields(fields map[enum.DefaultLogKey]string) {
+	if fields == nil {
+
+	}
+	for key, value := range fields {
+		if len(string(key)) == 0 || len(value) == 0 {
+			continue // Skip empty keys
+		}
+		defaultConfig.defaultFields[key] = value
+	}
+
+}
+
+// GetConfig returns the current logger configuration
+func GetConfig() *Config {
+	return defaultConfig
+}
+
+// ResetConfig resets the logger configuration to default values
+func ResetConfig() {
+	defaultConfig = &Config{
+		minLevel:            DafaultLevel,
+		encoderType:         DafaultEncoderType,
+		addSource:           DafaultAddSource,
+		output:              DefaultOutput,
+		logBuffer:           DafaultLogBuffer, // Default buffer size
+		rate:                1 * time.Second,  // Default rate is 1 sec
+		extractStaticFields: nil,
+		staticEnvFields:     nil,
+		contextParser:       nil,
+		timeFormat:          DefaultTimeFormat,
+		defaultFields: map[enum.DefaultLogKey]string{
+			enum.DefaultLogKeyTime:          string(enum.DefaultLogKeyTime),
+			enum.DefaultLogKeyLevel:         string(enum.DefaultLogKeyLevel),
+			enum.DefaultLogKeyMessage:       string(enum.DefaultLogKeyMessage),
+			enum.DefaultLogKeyError:         string(enum.DefaultLogKeyError),
+			enum.DefaultLogKeyCaller:        string(enum.DefaultLogKeyCaller),
+			enum.DefaultLogKeyContext:       string(enum.DefaultLogKeyContext),
+			enum.DefaultLogKeyDuration:      string(enum.DefaultLogKeyDuration),
+			enum.DefaultLogKeyFields:        string(enum.DefaultLogKeyFields),
+			enum.DefaultLogKeySource:        string(enum.DefaultLogKeySource),
+			enum.DefaultLogKeyStatic:        string(enum.DefaultLogKeyStatic),
+			enum.DefaultLogKeyEnv:           string(enum.DefaultLogKeyEnv),
+			enum.DefaultLogKeyHost:          string(enum.DefaultLogKeyHost),
+			enum.DefaultLogKeyService:       string(enum.DefaultLogKeyService),
+			enum.DefaultLogKeyVersion:       string(enum.DefaultLogKeyVersion),
+			enum.DefaultLogKeyRequest:       string(enum.DefaultLogKeyRequest),
+			enum.DefaultLogKeyResponse:      string(enum.DefaultLogKeyResponse),
+			enum.DefaultLogKeyUser:          string(enum.DefaultLogKeyUser),
+			enum.DefaultLogKeySession:       string(enum.DefaultLogKeySession),
+			enum.DefaultLogKeyTraceID:       string(enum.DefaultLogKeyTraceID),
+			enum.DefaultLogKeySpanID:        string(enum.DefaultLogKeySpanID),
+			enum.DefaultLogKeyCorrelationID: string(enum.DefaultLogKeyCorrelationID),
+			enum.DefaultLogKeyComponent:     string(enum.DefaultLogKeyComponent),
+			enum.DefaultLogKeyOperation:     string(enum.DefaultLogKeyOperation),
+			enum.DefaultLogKeyStatus:        string(enum.DefaultLogKeyStatus),
+			enum.DefaultLogKeyLatency:       string(enum.DefaultLogKeyLatency),
+			enum.DefaultLogKeyRequestID:     string(enum.DefaultLogKeyRequestID),
+			enum.DefaultLogKeyResponseTime:  string(enum.DefaultLogKeyResponseTime),
+			enum.DefaultLogKeyClientIP:      string(enum.DefaultLogKeyClientIP),
+			enum.DefaultLogKeyServerIP:      string(enum.DefaultLogKeyServerIP),
+			enum.DefaultLogKeyProtocol:      string(enum.DefaultLogKeyProtocol),
+			enum.DefaultLogKeyMethod:        string(enum.DefaultLogKeyMethod),
+			enum.DefaultLogKeyURL:           string(enum.DefaultLogKeyURL),
+			enum.DefaultLogKeyStatusCode:    string(enum.DefaultLogKeyStatusCode),
+			enum.DefaultLogKeyContentType:   string(enum.DefaultLogKeyContentType),
+			enum.DefaultLogKeyContentLength: string(enum.DefaultLogKeyContentLength),
+			enum.DefaultLogKeyResponseSize:  string(enum.DefaultLogKeyResponseSize),
+			enum.DefaultLogKeyRequestSize:   string(enum.DefaultLogKeyRequestSize),
+			enum.DefaultLogKeyUserAgent:     string(enum.DefaultLogKeyUserAgent),
+			enum.DefaultLogKeyReferer:       string(enum.DefaultLogKeyReferer),
+			enum.DefaultLogKeyForwardedFor:  string(enum.DefaultLogKeyForwardedFor),
+			enum.DefaultLogKeyCustom:        string(enum.DefaultLogKeyCustom),
+		},
+	}
+}
+
+func (c *Config) MinLevel() enum.LogLevel {
+	return c.minLevel
+}
+
+func (c *Config) EncoderType() enum.LogEncodeType {
+	return c.encoderType
+}
+
+func (c *Config) AddSource() bool {
+	return c.addSource
+}
+
+func (c *Config) Output() io.Writer {
+	return c.output
+}
+
+func (c *Config) LogBuffer() int {
+	return c.logBuffer
+}
+
+func (c *Config) Rate() time.Duration {
+	return c.rate
+}
+
+func (c *Config) ExtractStaticFields() StaticEnvFieldsParser {
+	return c.extractStaticFields
+}
+
+func (c *Config) StaticEnvFields() map[string]any {
+	return c.staticEnvFields
+}
+
+func (c *Config) ContextParser() ContextFieldsParser {
+	return c.contextParser
+}
+
+func (c *Config) DefaultFields() map[enum.DefaultLogKey]string {
+	return c.defaultFields
+}
+
+func (c *Config) TimeFormat() string {
+	return c.timeFormat
+}
