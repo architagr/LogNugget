@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/architagr/lognugget/encoder"
 	"github.com/architagr/lognugget/enum"
 )
 
@@ -28,6 +29,7 @@ func init() {
 type Config struct {
 	minLevel            enum.LogLevel                 // Minimum log level to log
 	encoderType         enum.LogEncodeType            // Encoder type to use for logging
+	encoderObj          encoder.Encoder               // encoder for the data
 	addSource           bool                          // Whether to add source information to logs
 	output              io.Writer                     // Output writer for logs
 	logBuffer           int                           // max Buffer size for logs
@@ -53,6 +55,14 @@ func SetTimeFormat(format string) {
 
 // SetEncoderType sets the encoder type for the logger
 func SetEncoderType(encoderType enum.LogEncodeType) {
+	var err error
+
+	defaultConfig.encoderObj, err = encoder.DefaultEncoderFactory(encoderType)
+	if err != nil {
+		encoderType = enum.EncoderJSON
+		defaultConfig.encoderObj, _ = encoder.DefaultEncoderFactory(encoderType)
+	}
+
 	defaultConfig.encoderType = encoderType
 }
 
@@ -127,9 +137,11 @@ func GetConfig() *Config {
 
 // ResetConfig resets the logger configuration to default values
 func ResetConfig() {
+	encoderObj, _ := encoder.DefaultEncoderFactory(enum.EncoderJSON)
 	defaultConfig = &Config{
 		minLevel:            DafaultLevel,
 		encoderType:         DafaultEncoderType,
+		encoderObj:          encoderObj,
 		addSource:           DafaultAddSource,
 		output:              DefaultOutput,
 		logBuffer:           DafaultLogBuffer, // Default buffer size
@@ -226,4 +238,7 @@ func (c *Config) DefaultFields() map[enum.DefaultLogKey]string {
 
 func (c *Config) TimeFormat() string {
 	return c.timeFormat
+}
+func (c *Config) Encoder() encoder.Encoder {
+	return c.encoderObj
 }
