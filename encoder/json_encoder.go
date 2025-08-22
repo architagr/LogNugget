@@ -2,8 +2,6 @@ package encoder
 
 import (
 	"encoding/json"
-
-	"github.com/architagr/lognugget/entry"
 )
 
 func NewJSONEncoder() Encoder {
@@ -17,9 +15,9 @@ type JSONEncoder struct {
 	jsonFormatter *json.Encoder
 }
 
-func (e *JSONEncoder) Write(entry *entry.LogEntry) ([]byte, error) {
+func (e *JSONEncoder) Write(entryData map[string]any) ([]byte, error) {
 	// Implementation of JSON encoding logic
-	d, err := json.Marshal(entry.ToMap())
+	d, err := json.Marshal(entryData)
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,5 @@
 package encoder
 
-import "github.com/architagr/lognugget/entry"
-
 func NewTextEncoder() Encoder {
 	// Implementation of Text encoder
 	return &TextEncoder{}
@@ -9,7 +7,7 @@ func NewTextEncoder() Encoder {
 
 type TextEncoder struct{}
 
-func (e *TextEncoder) Write(entry *entry.LogEntry) ([]byte, error) {
+func (e *TextEncoder) Write(entryData map[string]any) ([]byte, error) {
 	// Implementation of Text encoding logic
 	return nil, nil
 }

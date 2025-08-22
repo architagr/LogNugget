@@ -12,10 +12,29 @@ import (
 	"github.com/architagr/lognugget/model"
 )
 
-type publishEventPreProcessorStream chan<- *LogEntry
+type preProcessingObserverContract interface {
+	PreProcess(entry *LogEntry)
+	Name() string
+}
+
+func InitPreProcessors(observers ...preProcessingObserverContract) {
+	eventPreProcessors = make(map[string]preProcessingObserverContract)
+	AddPreProcessors(observers...)
+}
+
+func AddPreProcessors(observers ...preProcessingObserverContract) {
+	for _, observer := range observers {
+		eventPreProcessors[observer.Name()] = observer
+	}
+}
+
+func RemovePreProcessor(name string) {
+	delete(eventPreProcessors, name)
+}
 
 var (
-	entryPool sync.Pool
+	entryPool          sync.Pool
+	eventPreProcessors map[string]preProcessingObserverContract
 )
 
 func init() {
@@ -31,6 +50,8 @@ func init() {
 }
 
 type LogEntry struct {
+	// published indicates if the log entry has been published to the output stream
+	published bool
 	// data custom fields to be logged
 	data []model.LogAttr
 	// context current context object
@@ -45,8 +66,7 @@ type LogEntry struct {
 	// Error in case of error
 	err error
 	// caller Calling method, with package name
-	caller              *runtime.Frame // TODO: add a function to set caller from runtime.Caller
-	preProcessingStream publishEventPreProcessorStream
+	caller *runtime.Frame // TODO: add a function to set caller from runtime.Caller
 }
 
 // implement a builder to duplicate an existing logEntry having below functions
@@ -55,10 +75,9 @@ type LogEntry struct {
 // WithFields
 // WithTime
 
-func newLogEntry(stream publishEventPreProcessorStream) *LogEntry {
+func newLogEntry() *LogEntry {
 	e := entryPool.Get().(*LogEntry)
 	e.reset()
-	e.preProcessingStream = stream
 	return e
 }
 
@@ -70,7 +89,7 @@ func (e *LogEntry) reset() {
 	e.message = ""
 	e.err = nil
 	e.caller = nil
-	e.preProcessingStream = nil
+	e.published = false
 }
 
 func (e *LogEntry) Put() {
@@ -78,7 +97,7 @@ func (e *LogEntry) Put() {
 }
 
 func (e *LogEntry) WithFields(fields ...model.LogAttr) *LogEntry {
-	if len(fields) == 0 {
+	if e.published || len(fields) == 0 {
 		return e
 	}
 	e.data = append(e.data, fields...)
@@ -86,6 +105,9 @@ func (e *LogEntry) WithFields(fields ...model.LogAttr) *LogEntry {
 }
 
 func (e *LogEntry) WithTime(t time.Time) *LogEntry {
+	if e.published {
+		return e
+	}
 	if t.IsZero() {
 		t = customTime.TimeNow()
 	}
@@ -94,11 +116,17 @@ func (e *LogEntry) WithTime(t time.Time) *LogEntry {
 }
 
 func (e *LogEntry) WithContext(ctx context.Context) *LogEntry {
+	if e.published {
+		return e
+	}
 	e.context = ctx
 	return e
 }
 
 func (e *LogEntry) WithCaller(caller *runtime.Frame) *LogEntry {
+	if e.published {
+		return e
+	}
 	if caller == nil {
 		return e
 	}
@@ -107,12 +135,15 @@ func (e *LogEntry) WithCaller(caller *runtime.Frame) *LogEntry {
 }
 
 func (e *LogEntry) WithMessage(msg string) *LogEntry {
+	if e.published {
+		return e
+	}
 	e.message = msg
 	return e
 }
 
 func (e *LogEntry) WithLevel(level enum.LogLevel) *LogEntry {
-	if level < enum.LevelDebug || level > enum.LevelError {
+	if e.published || level < enum.LevelDebug || level > enum.LevelError {
 		return e
 	}
 	e.level = level
@@ -120,7 +151,7 @@ func (e *LogEntry) WithLevel(level enum.LogLevel) *LogEntry {
 }
 
 func (e *LogEntry) Clone() *LogEntry {
-	clone := newLogEntry(e.preProcessingStream).
+	clone := newLogEntry().
 		WithFields(e.data...).
 		WithTime(e.time).
 		WithCaller(e.caller).
@@ -129,33 +160,43 @@ func (e *LogEntry) Clone() *LogEntry {
 		WithMessage(e.message)
 	return clone
 }
+
 func (e *LogEntry) IsEmpty() bool {
 	return e == nil || (len(e.data) == 0 && e.context == nil && e.time.IsZero() && e.message == "" && e.err == nil && e.caller == nil)
 }
+
 func (e *LogEntry) IsValid() bool {
 	return e != nil && !e.time.IsZero() && e.level >= enum.LevelDebug && e.level <= enum.LevelError
 }
+
 func (e *LogEntry) IsError() bool {
 	return e != nil && e.err != nil
 }
+
 func (e *LogEntry) IsDebug() bool {
 	return e != nil && e.level == enum.LevelDebug
 }
+
 func (e *LogEntry) IsInfo() bool {
 	return e != nil && e.level == enum.LevelInfo
 }
-func (e *LogEntry) IsWarn() bool {
+
+func (e *LogEntry) IsWarnLevel() bool {
 	return e != nil && e.level == enum.LevelWarn
 }
-func (e *LogEntry) IsTrace() bool {
+
+func (e *LogEntry) IsTraceLevel() bool {
 	return e != nil && e.level == enum.LevelDebug // Assuming Trace is equivalent to Debug in this context
 }
+
 func (e *LogEntry) IsErrorLevel() bool {
 	return e != nil && e.level == enum.LevelError
 }
+
 func (e *LogEntry) IsFatalLevel() bool {
 	return e != nil && e.level == enum.LevelFatal && e.err != nil
 }
+
 func (e *LogEntry) IsPanicLevel() bool {
 	return e != nil && e.level == enum.LevelFatal && e.err != nil && e.caller != nil && e.caller.Function == "runtime.panic"
 }
@@ -163,90 +204,30 @@ func (e *LogEntry) IsPanicLevel() bool {
 func (e *LogEntry) IsContextEmpty() bool {
 	return e == nil || (e.context == nil || e.context == context.Background())
 }
+
 func (e *LogEntry) IsDataEmpty() bool {
 	return e == nil || (len(e.data) == 0)
 }
+
 func (e *LogEntry) IsTimeEmpty() bool {
 	return e == nil || (e.time.IsZero())
 }
+
 func (e *LogEntry) IsMessageEmpty() bool {
 	return e == nil || (e.message == "")
 }
-func (e *LogEntry) IsErrorEmpty() bool {
-	return e == nil || (e.err == nil)
-}
+
 func (e *LogEntry) IsCallerEmpty() bool {
 	return e == nil || (e.caller == nil)
 }
-func (e *LogEntry) IsValidForLevel(level enum.LogLevel) bool {
-	if e == nil {
-		return false
-	}
-	if e.level != level || e.time.IsZero() || e.IsError() || e.IsFatalLevel() || e.IsPanicLevel() {
-		return false
-	}
-	return true
-}
-func (e *LogEntry) IsValidForLevels(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return false
-	}
-	for _, level := range levels {
-		if e.level == level {
-			return e.IsValidForLevel(level)
-		}
-	}
-	return false
-}
-func (e *LogEntry) IsValidForAnyLevel(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return false
-	}
-	for _, level := range levels {
-		if e.level == level && e.IsValidForLevel(level) {
-			return true
-		}
-	}
-	return false
-}
 
-func (e *LogEntry) IsValidForAllOfLevels(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return false
-	}
-	for _, level := range levels {
-		if e.level == level && !e.IsValidForLevel(level) {
-			return false
-		}
-	}
-	return true
-}
-
-func (e *LogEntry) IsValidForNoneOfLevelsNotIn(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return true
-	}
-	for _, level := range levels {
-		if e.level == level && e.IsValidForLevel(level) {
-			return false
-		}
-	}
-	return true
-}
-func (e *LogEntry) IsValidForAnyOfLevelsIn(levels ...enum.LogLevel) bool {
-	if e == nil {
-		return false
-	}
-	for _, level := range levels {
-		if e.level == level && e.IsValidForLevel(level) {
-			return true
-		}
-	}
-	return false
+func (e *LogEntry) Level() enum.LogLevel {
+	return e.level
 }
 
 func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string, fields ...model.LogAttr) {
-	if config.GetConfig().MinLevel() > level || e.preProcessingStream == nil {
+
+	if e.published || config.GetConfig().MinLevel() > level || eventPreProcessors == nil {
 		return
 	}
 
@@ -255,7 +236,11 @@ func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string,
 	e.data = append(e.data, fields...)
 	e.level = level
 
-	e.preProcessingStream <- e
+	for _, observer := range eventPreProcessors {
+		observer.PreProcess(e)
+	}
+	e.reset()
+	e.Put()
 }
 
 func (e *LogEntry) Debug(ctx context.Context, message string, fields ...model.LogAttr) {
@@ -275,10 +260,16 @@ func (e *LogEntry) Error(ctx context.Context, err error, message string, fields 
 }
 
 func (e *LogEntry) Fatal(ctx context.Context, err error, message string, fields ...model.LogAttr) {
+	if e.published {
+		return
+	}
 	e.Error(ctx, err, message, fields...)
 	runtime.Goexit() // Exit the program after logging fatal error
 }
 func (e *LogEntry) Panic(ctx context.Context, err error, message string, fields ...model.LogAttr) {
+	if e.published {
+		return
+	}
 	e.Error(ctx, err, message, fields...)
 	panic(e.err) // Panic with the error
 }
@@ -348,6 +339,9 @@ func (e *LogEntry) setLogStaticEnvFields(data map[string]any) {
 	}
 }
 func (e *LogEntry) ToMap() map[string]any {
+	if e.IsMessageEmpty() || e.IsTimeEmpty() {
+		return nil
+	}
 	data := make(map[string]any, len(e.data)+len(config.GetConfig().StaticEnvFields()))
 	e.setLogContextFields(data)
 	for _, field := range e.data {
