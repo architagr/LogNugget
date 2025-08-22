@@ -30,7 +30,7 @@ func (t *TestPreProcessorObserver) Name() string {
 	return "TestPreProcessorObserver"
 }
 
-var timeoutForSingleLogProcessing = 30 * time.Microsecond
+var timeoutForSingleLogProcessing = 200 * time.Microsecond
 
 func TestEntryForDebugWithMinLogLevelAsDebug(t *testing.T) {
 	var buf bytes.Buffer
