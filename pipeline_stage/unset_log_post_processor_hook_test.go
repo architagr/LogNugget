@@ -1,6 +1,7 @@
 package pipelineStage
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -8,62 +9,60 @@ import (
 )
 
 type mockWriter struct {
+	mu     sync.Mutex
 	called int
 }
 
 func (mw *mockWriter) Write(p []byte) (n int, err error) {
+	mw.mu.Lock()
+	defer mw.mu.Unlock()
 	mw.called++
 	return len(p), nil
 }
 
+func (mw *mockWriter) Count() int {
+	mw.mu.Lock()
+	defer mw.mu.Unlock()
+	return mw.called
+}
+
 func TestPublishMessageAndNoIO(t *testing.T) {
-	out := &mockWriter{
-		called: 0,
-	}
+	out := &mockWriter{}
 	obj := NewUnsetLogEventPostProcessor(time.Second, 10, out)
-	assert.Equal(t, "unsetLogEventPostProsessor", obj.Name())
+	defer obj.Stop()
+
+	assert.Equal(t, "unsetLogEventPostProcessor", obj.Name())
 	obj.PublishLogMessage([]byte("test message 1"))
-	assert.Equal(t, 0, out.called)
 	obj.PublishLogMessage([]byte("test message 2"))
-	assert.Equal(t, 0, out.called)
 	obj.PublishLogMessage([]byte("test message 3"))
-	assert.Equal(t, 0, out.called)
-	obj.PublishLogMessage([]byte("test message 4"))
-	assert.Equal(t, 0, out.called)
-	obj.PublishLogMessage([]byte("test message 5"))
-	assert.Equal(t, 0, out.called)
+	assert.Equal(t, 0, out.Count())
 }
 
 func TestPublishMessageWithIOAfterBufferReached(t *testing.T) {
-	out := &mockWriter{
-		called: 0,
-	}
+	out := &mockWriter{}
 	obj := NewUnsetLogEventPostProcessor(time.Minute, 3, out)
+	defer obj.Stop()
 
 	obj.PublishLogMessage([]byte("test message 1"))
 	obj.PublishLogMessage([]byte("test message 2"))
 	obj.PublishLogMessage([]byte("test message 3"))
-	assert.Equal(t, 0, out.called)
+	assert.Equal(t, 0, out.Count())
+
 	obj.PublishLogMessage([]byte("test message 4"))
-	time.Sleep(500 * time.Millisecond)
-	assert.Equal(t, 3, out.called)
-	obj.PublishLogMessage([]byte("test message 5"))
-	assert.Equal(t, 3, out.called)
+
+	assert.Eventually(t, func() bool { return out.Count() == 3 }, 200*time.Millisecond, 50*time.Millisecond)
 }
 
 func TestPublishMessageWithIOAfterRate(t *testing.T) {
-	out := &mockWriter{
-		called: 0,
-	}
-	obj := NewUnsetLogEventPostProcessor(time.Second, 3, out)
+	out := &mockWriter{}
+	obj := NewUnsetLogEventPostProcessor(500*time.Millisecond, 10, out)
+	defer obj.Stop()
 
 	obj.PublishLogMessage([]byte("test message 1"))
 	obj.PublishLogMessage([]byte("test message 2"))
 	obj.PublishLogMessage([]byte("test message 3"))
-	assert.Equal(t, 0, out.called)
-	time.Sleep(2 * time.Second)
-	assert.Equal(t, 3, out.called)
-	obj.PublishLogMessage([]byte("test message 4"))
-	obj.PublishLogMessage([]byte("test message 5"))
-	assert.Equal(t, 3, out.called)
+
+	assert.Equal(t, 0, out.Count())
+
+	assert.Eventually(t, func() bool { return out.Count() == 3 }, time.Second, 50*time.Millisecond)
 }
