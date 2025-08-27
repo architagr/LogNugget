@@ -32,7 +32,7 @@ type Config struct {
 	encoderObj          encoder.Encoder               // encoder for the data
 	addSource           bool                          // Whether to add source information to logs
 	output              io.Writer                     // Output writer for logs
-	logBuffer           int                           // max Buffer size for logs
+	logBufferMaxSize    int                           // max Buffer size for logs
 	rate                time.Duration                 // Rate to push logs to output
 	extractStaticFields StaticEnvFieldsParser         // Function to extract static environment fields
 	staticEnvFields     map[string]any                // Static environment fields to log
@@ -81,12 +81,12 @@ func SetOutput(output io.Writer) {
 
 }
 
-// SetLogBuffer sets the maximum buffer size for logs
-func SetLogBuffer(size int) {
+// SetLogBufferMaxSize sets the maximum buffer size for logs
+func SetLogBufferMaxSize(size int) {
 	if size <= 0 {
 		size = 20 // Default buffer size
 	}
-	defaultConfig.logBuffer = size
+	defaultConfig.logBufferMaxSize = size
 
 }
 
@@ -144,7 +144,7 @@ func ResetConfig() {
 		encoderObj:          encoderObj,
 		addSource:           DafaultAddSource,
 		output:              DefaultOutput,
-		logBuffer:           DafaultLogBuffer, // Default buffer size
+		logBufferMaxSize:    DafaultLogBuffer, // Default buffer size
 		rate:                1 * time.Second,  // Default rate is 1 sec
 		extractStaticFields: nil,
 		staticEnvFields:     nil,
@@ -213,7 +213,7 @@ func (c *Config) Output() io.Writer {
 }
 
 func (c *Config) LogBuffer() int {
-	return c.logBuffer
+	return c.logBufferMaxSize
 }
 
 func (c *Config) Rate() time.Duration {
