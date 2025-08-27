@@ -62,7 +62,7 @@ func (h *unsetLogEventPostProcessor) flushLogMessages() {
 	h.resetBucket()
 
 	// process asynchronously
-	h.printMessage(backupBucket)
+	go h.printMessage(backupBucket)
 }
 
 // printMessage writes buffered messages to the output.
