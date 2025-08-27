@@ -55,7 +55,6 @@ func (h *unsetLogEventPostProcessor) flushLogMessages() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if len(h.activeBucket) == 0 {
-		h.mu.Unlock()
 		return
 	}
 
