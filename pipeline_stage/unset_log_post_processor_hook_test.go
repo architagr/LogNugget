@@ -57,7 +57,8 @@ func TestPublishMessageWithIOAfterRate(t *testing.T) {
 	out := &mockWriter{}
 	obj := NewUnsetLogEventPostProcessor(500*time.Millisecond, 10, out)
 	defer obj.Stop()
-
+	time.Sleep(time.Second)
+	assert.Equal(t, 0, out.Count())
 	obj.PublishLogMessage([]byte("test message 1"))
 	obj.PublishLogMessage([]byte("test message 2"))
 	obj.PublishLogMessage([]byte("test message 3"))
