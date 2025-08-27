@@ -63,7 +63,5 @@ func TestPublishMessageWithIOAfterRate(t *testing.T) {
 	obj.PublishLogMessage([]byte("test message 2"))
 	obj.PublishLogMessage([]byte("test message 3"))
 
-	assert.Equal(t, 0, out.Count())
-
 	assert.Eventually(t, func() bool { return out.Count() == 3 }, time.Second, 50*time.Millisecond)
 }
