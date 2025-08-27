@@ -46,7 +46,8 @@ func (e *mockDebugHook) Name() string {
 func TestPublishMessageNoLevelHookCalled(t *testing.T) {
 	unsetHook := &mockUnsetHook{}
 	debugHook := &mockDebugHook{}
-	obj := NewEventPreProcessingObserver()
+	obj := newEventPreProcessingObserver()
+	obj.DeRegisterHook(enum.LevelUnSet, unsetHook.Name())
 	obj.RegisterHook(enum.LevelUnSet, unsetHook)
 	obj.RegisterHook(enum.LevelDebug, debugHook)
 
@@ -54,7 +55,7 @@ func TestPublishMessageNoLevelHookCalled(t *testing.T) {
 		data:  map[string]any{},
 		level: enum.LevelError,
 	})
-
+	assert.Equal(t, "EventPreProcessorObserver", obj.Name())
 	assert.True(t, unsetHook.isCalled)
 	assert.False(t, debugHook.isCalled)
 }
@@ -62,7 +63,7 @@ func TestPublishMessageNoLevelHookCalled(t *testing.T) {
 func TestPublishMessage(t *testing.T) {
 	unsetHook := &mockUnsetHook{}
 	debugHook := &mockDebugHook{}
-	obj := NewEventPreProcessingObserver()
+	obj := newEventPreProcessingObserver()
 	obj.RegisterHook(enum.LevelUnSet, unsetHook)
 	obj.RegisterHook(enum.LevelDebug, debugHook)
 
@@ -78,7 +79,7 @@ func TestPublishMessage(t *testing.T) {
 func TestDeregister(t *testing.T) {
 	unsetHook := &mockUnsetHook{}
 	debugHook := &mockDebugHook{}
-	obj := NewEventPreProcessingObserver()
+	obj := newEventPreProcessingObserver()
 	obj.RegisterHook(enum.LevelUnSet, unsetHook)
 	obj.RegisterHook(enum.LevelDebug, debugHook)
 	obj.DeRegisterHook(enum.LevelDebug, debugHook.Name())

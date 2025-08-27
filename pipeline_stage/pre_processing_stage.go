@@ -7,6 +7,14 @@ import (
 	"github.com/architagr/lognugget/enum"
 )
 
+var EventPreProcessorObj *eventPreProcessorObserver
+
+func init() {
+	(&sync.Once{}).Do(func() {
+		EventPreProcessorObj = newEventPreProcessingObserver()
+	})
+}
+
 type logEntryContract interface {
 	ToMap() map[string]any
 	Level() enum.LogLevel
@@ -17,17 +25,17 @@ type publishLogMessageHookContract interface {
 	Name() string
 }
 
-type EventPreProcessorObserver struct {
+type eventPreProcessorObserver struct {
 	hooks map[enum.LogLevel]map[string]publishLogMessageHookContract
 }
 
-func NewEventPreProcessingObserver() *EventPreProcessorObserver {
-	return &EventPreProcessorObserver{
+func newEventPreProcessingObserver() *eventPreProcessorObserver {
+	return &eventPreProcessorObserver{
 		hooks: make(map[enum.LogLevel]map[string]publishLogMessageHookContract),
 	}
 }
 
-func (e *EventPreProcessorObserver) RegisterHook(level enum.LogLevel, hook publishLogMessageHookContract) {
+func (e *eventPreProcessorObserver) RegisterHook(level enum.LogLevel, hook publishLogMessageHookContract) {
 	levelHooks, exists := e.hooks[level]
 	if !exists {
 		levelHooks = make(map[string]publishLogMessageHookContract)
@@ -36,7 +44,7 @@ func (e *EventPreProcessorObserver) RegisterHook(level enum.LogLevel, hook publi
 	e.hooks[level] = levelHooks
 }
 
-func (e *EventPreProcessorObserver) DeRegisterHook(level enum.LogLevel, hookName string) {
+func (e *eventPreProcessorObserver) DeRegisterHook(level enum.LogLevel, hookName string) {
 	levelHooks, exists := e.hooks[level]
 	if !exists {
 		return
@@ -45,7 +53,7 @@ func (e *EventPreProcessorObserver) DeRegisterHook(level enum.LogLevel, hookName
 	e.hooks[level] = levelHooks
 }
 
-func (e *EventPreProcessorObserver) PreProcess(entryObj logEntryContract) {
+func (e *eventPreProcessorObserver) PreProcess(entryObj logEntryContract) {
 	byteData, err := config.GetConfig().Encoder().Write(entryObj.ToMap())
 	if err != nil {
 		return
@@ -64,6 +72,6 @@ func publish(byteData []byte, hooks map[string]publishLogMessageHookContract, wg
 	}
 }
 
-func (e *EventPreProcessorObserver) Name() string {
+func (e *eventPreProcessorObserver) Name() string {
 	return "EventPreProcessorObserver"
 }
