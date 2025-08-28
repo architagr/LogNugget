@@ -39,6 +39,10 @@ func (h *unsetLogEventPostProcessor) activeBucketWatcher() {
 		case <-h.ticker.C:
 			h.flushLogMessages()
 		case <-h.stopCh:
+			h.flushLogMessages()
+			for len(h.activeBucket) > 0 {
+				time.Sleep(h.rate)
+			}
 			h.ticker.Stop()
 			return
 		}

@@ -19,7 +19,7 @@ type TestPreProcessorObserver struct {
 	timeToProcess time.Duration
 }
 
-func (t *TestPreProcessorObserver) PreProcess(entry *LogEntry) {
+func (t *TestPreProcessorObserver) PreProcess(entry config.LogEntryContract) {
 	t.isExecuted = true
 	n := time.Now()
 	t.logEntry = entry.ToMap()
@@ -54,10 +54,10 @@ func TestEntryForDebugWithMinLogLevelAsDebug(t *testing.T) {
 	ctx := context.WithValue(context.Background(), "request_id", "12345")
 
 	observer := &TestPreProcessorObserver{}
-	InitPreProcessors(observer)
+	config.InitPreProcessors(observer)
 
 	// Create a new log entry
-	entry := newLogEntry()
+	entry := NewLogEntry()
 	entry.Debug(ctx, "This is a debug message", []model.LogAttr{
 		{Key: model.LogAttrKey("id"), Value: model.LogAttrValue(1)},
 		{Key: model.LogAttrKey("message"), Value: model.LogAttrValue("message")},
@@ -98,10 +98,10 @@ func TestEntryForDebugWithMinLogLevelAsError(t *testing.T) {
 	})
 	ctx := context.WithValue(context.Background(), "request_id", "12345")
 	observer := &TestPreProcessorObserver{}
-	InitPreProcessors(observer)
+	config.InitPreProcessors(observer)
 
 	// Create a new log entry
-	entry := newLogEntry()
+	entry := NewLogEntry()
 
 	// Check if the fields are set correctly
 	entry.Debug(ctx, "This is a debug message", []model.LogAttr{
@@ -133,9 +133,9 @@ func TestEntryForErrorWithMinLogLevelAsDebug(t *testing.T) {
 	ctx := context.WithValue(context.Background(), "request_id", "12345")
 
 	observer := &TestPreProcessorObserver{}
-	InitPreProcessors(observer)
+	config.InitPreProcessors(observer)
 
-	entry := newLogEntry()
+	entry := NewLogEntry()
 	entry.Error(ctx, errors.New("not found"), "This is a error message", []model.LogAttr{
 		{Key: model.LogAttrKey("id"), Value: model.LogAttrValue(1)},
 		{Key: model.LogAttrKey("message"), Value: model.LogAttrValue("message")},

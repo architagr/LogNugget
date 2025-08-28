@@ -12,39 +12,14 @@ import (
 	"github.com/architagr/lognugget/model"
 )
 
-type preProcessingObserverContract interface {
-	PreProcess(entry *LogEntry)
-	Name() string
-}
-
-func InitPreProcessors(observers ...preProcessingObserverContract) {
-	eventPreProcessors = make(map[string]preProcessingObserverContract)
-	AddPreProcessors(observers...)
-}
-
-func AddPreProcessors(observers ...preProcessingObserverContract) {
-	for _, observer := range observers {
-		eventPreProcessors[observer.Name()] = observer
-	}
-}
-
-func RemovePreProcessor(name string) {
-	delete(eventPreProcessors, name)
-}
-
 var (
-	entryPool          sync.Pool
-	eventPreProcessors map[string]preProcessingObserverContract
+	entryPool sync.Pool
 )
 
 func init() {
 	entryPool = sync.Pool{
 		New: func() any {
-			return &LogEntry{
-				data:    make([]model.LogAttr, 0),
-				context: context.Background(),
-				time:    customTime.TimeNow(),
-			}
+			return initLogEntry()
 		},
 	}
 }
@@ -75,12 +50,25 @@ type LogEntry struct {
 // WithFields
 // WithTime
 
-func newLogEntry() *LogEntry {
+func NewLogEntry() *LogEntry {
 	e := entryPool.Get().(*LogEntry)
 	e.reset()
 	return e
 }
 
+func GenerateInitialPool(n int) {
+	for i := 0; i < n; i++ {
+		entryPool.Put(initLogEntry())
+	}
+}
+
+func initLogEntry() *LogEntry {
+	return &LogEntry{
+		data:    make([]model.LogAttr, 0),
+		context: context.Background(),
+		time:    customTime.TimeNow(),
+	}
+}
 func (e *LogEntry) reset() {
 	e.data = make([]model.LogAttr, 0)
 	e.context = context.Background()
@@ -151,7 +139,7 @@ func (e *LogEntry) WithLevel(level enum.LogLevel) *LogEntry {
 }
 
 func (e *LogEntry) Clone() *LogEntry {
-	clone := newLogEntry().
+	clone := NewLogEntry().
 		WithFields(e.data...).
 		WithTime(e.time).
 		WithCaller(e.caller).
@@ -227,7 +215,7 @@ func (e *LogEntry) Level() enum.LogLevel {
 
 func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string, fields ...model.LogAttr) {
 
-	if e.published || config.GetConfig().MinLevel() > level || eventPreProcessors == nil {
+	if e.published || config.GetConfig().MinLevel() > level || config.EventPreProcessors == nil {
 		return
 	}
 
@@ -236,7 +224,7 @@ func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string,
 	e.data = append(e.data, fields...)
 	e.level = level
 
-	for _, observer := range eventPreProcessors {
+	for _, observer := range config.EventPreProcessors {
 		observer.PreProcess(e)
 	}
 	e.reset()
@@ -244,7 +232,6 @@ func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string,
 }
 
 func (e *LogEntry) Debug(ctx context.Context, message string, fields ...model.LogAttr) {
-
 	e.Log(enum.LevelDebug, ctx, message, fields...)
 }
 

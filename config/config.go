@@ -41,7 +41,34 @@ type Config struct {
 	timeFormat          string                        // Time format for log entries
 }
 
-var defaultConfig *Config
+var (
+	defaultConfig      *Config
+	EventPreProcessors map[string]preProcessingObserverContract
+)
+
+type LogEntryContract interface {
+	ToMap() map[string]any
+	Level() enum.LogLevel
+}
+type preProcessingObserverContract interface {
+	PreProcess(entry LogEntryContract)
+	Name() string
+}
+
+func InitPreProcessors(observers ...preProcessingObserverContract) {
+	EventPreProcessors = make(map[string]preProcessingObserverContract)
+	AddPreProcessors(observers...)
+}
+
+func AddPreProcessors(observers ...preProcessingObserverContract) {
+	for _, observer := range observers {
+		EventPreProcessors[observer.Name()] = observer
+	}
+}
+
+func RemovePreProcessor(name string) {
+	delete(EventPreProcessors, name)
+}
 
 // SetMinLevel sets the minimum log level for the logger
 func SetMinLevel(level enum.LogLevel) {
