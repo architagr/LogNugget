@@ -2,8 +2,6 @@ module github.com/architagr/lognugget
 
 go 1.18
 
-toolchain go1.24.2
-
 require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/rs/zerolog v1.34.0
