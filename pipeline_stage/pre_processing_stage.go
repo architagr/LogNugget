@@ -15,10 +15,10 @@ func init() {
 	})
 }
 
-type logEntryContract interface {
-	ToMap() map[string]any
-	Level() enum.LogLevel
-}
+// type logEntryContract interface {
+// 	ToMap() map[string]any
+// 	Level() enum.LogLevel
+// }
 
 type publishLogMessageHookContract interface {
 	PublishLogMessage(entry []byte)
@@ -53,7 +53,7 @@ func (e *eventPreProcessorObserver) DeRegisterHook(level enum.LogLevel, hookName
 	e.hooks[level] = levelHooks
 }
 
-func (e *eventPreProcessorObserver) PreProcess(entryObj logEntryContract) {
+func (e *eventPreProcessorObserver) PreProcess(entryObj config.LogEntryContract) {
 	byteData, err := config.GetConfig().Encoder().Write(entryObj.ToMap())
 	if err != nil {
 		return

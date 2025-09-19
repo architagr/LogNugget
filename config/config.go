@@ -2,8 +2,11 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/architagr/lognugget/encoder"
@@ -27,21 +30,47 @@ func init() {
 }
 
 type Config struct {
-	minLevel            enum.LogLevel                 // Minimum log level to log
-	encoderType         enum.LogEncodeType            // Encoder type to use for logging
-	encoderObj          encoder.Encoder               // encoder for the data
-	addSource           bool                          // Whether to add source information to logs
-	output              io.Writer                     // Output writer for logs
-	logBufferMaxSize    int                           // max Buffer size for logs
-	rate                time.Duration                 // Rate to push logs to output
-	extractStaticFields StaticEnvFieldsParser         // Function to extract static environment fields
-	staticEnvFields     map[string]any                // Static environment fields to log
-	contextParser       ContextFieldsParser           // Function to extract context fields
-	defaultFields       map[enum.DefaultLogKey]string // Default fields to log with every entry
-	timeFormat          string                        // Time format for log entries
+	minLevel           enum.LogLevel                 // Minimum log level to log
+	encoderType        enum.LogEncodeType            // Encoder type to use for logging
+	encoderObj         encoder.Encoder               // encoder for the data
+	addSource          bool                          // Whether to add source information to logs
+	output             io.Writer                     // Output writer for logs
+	logBufferMaxSize   int                           // max Buffer size for logs
+	rate               time.Duration                 // Rate to push logs to output
+	parsedStaticFields string                        // this is the satic fields
+	contextParser      ContextFieldsParser           // Function to extract context fields
+	defaultFields      map[enum.DefaultLogKey]string // Default fields to log with every entry
+	timeFormat         string                        // Time format for log entries
 }
 
-var defaultConfig *Config
+var (
+	defaultConfig      *Config
+	EventPreProcessors map[string]preProcessingObserverContract
+)
+
+type LogEntryContract interface {
+	ToMap() string
+	Level() enum.LogLevel
+}
+type preProcessingObserverContract interface {
+	PreProcess(entry LogEntryContract)
+	Name() string
+}
+
+func InitPreProcessors(observers ...preProcessingObserverContract) {
+	EventPreProcessors = make(map[string]preProcessingObserverContract)
+	AddPreProcessors(observers...)
+}
+
+func AddPreProcessors(observers ...preProcessingObserverContract) {
+	for _, observer := range observers {
+		EventPreProcessors[observer.Name()] = observer
+	}
+}
+
+func RemovePreProcessor(name string) {
+	delete(EventPreProcessors, name)
+}
 
 // SetMinLevel sets the minimum log level for the logger
 func SetMinLevel(level enum.LogLevel) {
@@ -101,13 +130,39 @@ func SetRate(rate time.Duration) {
 
 // SetStaticEnvFieldsParser sets the function to extract static environment fields
 func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
-	defaultConfig.extractStaticFields = parser
 	if parser != nil {
-		defaultConfig.staticEnvFields = defaultConfig.extractStaticFields()
+		list := []string{}
+		for key, value := range parser() {
+			list = Foo(list, key, value)
+		}
+		if len(list) > 0 {
+			defaultConfig.parsedStaticFields = strings.Join(list, ", ")
+		}
+
 	} else {
-		defaultConfig.staticEnvFields = nil
+		defaultConfig.parsedStaticFields = ""
 	}
 
+}
+
+func Foo(data []string, key string, value any) []string {
+	defaultFields := GetConfig().DefaultFields()
+	if slices.Contains([]string{
+		defaultFields[enum.DefaultLogKeyCaller],
+		defaultFields[enum.DefaultLogKeyError],
+		defaultFields[enum.DefaultLogKeyMessage],
+		defaultFields[enum.DefaultLogKeyLevel],
+		defaultFields[enum.DefaultLogKeyTime],
+	}, key) {
+		key = "custon." + key
+	}
+
+	data = append(data, Bar(key, value))
+	return data
+}
+
+func Bar(key string, value any) string {
+	return fmt.Sprintf("\"%s\": %+v", key, value)
 }
 
 // SetContextFieldsParser sets the function to extract context fields
@@ -139,17 +194,16 @@ func GetConfig() *Config {
 func ResetConfig() {
 	encoderObj, _ := encoder.DefaultEncoderFactory(enum.EncoderJSON)
 	defaultConfig = &Config{
-		minLevel:            DafaultLevel,
-		encoderType:         DafaultEncoderType,
-		encoderObj:          encoderObj,
-		addSource:           DafaultAddSource,
-		output:              DefaultOutput,
-		logBufferMaxSize:    DafaultLogBuffer, // Default buffer size
-		rate:                1 * time.Second,  // Default rate is 1 sec
-		extractStaticFields: nil,
-		staticEnvFields:     nil,
-		contextParser:       nil,
-		timeFormat:          DefaultTimeFormat,
+		minLevel:           DafaultLevel,
+		encoderType:        DafaultEncoderType,
+		encoderObj:         encoderObj,
+		addSource:          DafaultAddSource,
+		output:             DefaultOutput,
+		logBufferMaxSize:   DafaultLogBuffer, // Default buffer size
+		rate:               1 * time.Second,  // Default rate is 1 sec
+		parsedStaticFields: "",
+		contextParser:      nil,
+		timeFormat:         DefaultTimeFormat,
 		defaultFields: map[enum.DefaultLogKey]string{
 			enum.DefaultLogKeyTime:          string(enum.DefaultLogKeyTime),
 			enum.DefaultLogKeyLevel:         string(enum.DefaultLogKeyLevel),
@@ -220,12 +274,8 @@ func (c *Config) Rate() time.Duration {
 	return c.rate
 }
 
-func (c *Config) ExtractStaticFields() StaticEnvFieldsParser {
-	return c.extractStaticFields
-}
-
-func (c *Config) StaticEnvFields() map[string]any {
-	return c.staticEnvFields
+func (c *Config) StaticFields() string {
+	return c.parsedStaticFields
 }
 
 func (c *Config) ContextParser() ContextFieldsParser {

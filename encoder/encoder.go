@@ -9,7 +9,7 @@ import (
 var ErrUnsupportedEncoderType = errors.New("unsupported encoder type")
 
 type Encoder interface {
-	Write(map[string]any) ([]byte, error)
+	Write(string) ([]byte, error)
 }
 
 func DefaultEncoderFactory(encoderType enum.LogEncodeType) (Encoder, error) {

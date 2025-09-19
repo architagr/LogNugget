@@ -8,11 +8,11 @@ import (
 )
 
 type mockEntry struct {
-	data  map[string]any
+	data  string
 	level enum.LogLevel
 }
 
-func (e *mockEntry) ToMap() map[string]any {
+func (e *mockEntry) ToMap() string {
 	return e.data
 }
 func (e *mockEntry) Level() enum.LogLevel {
@@ -52,7 +52,7 @@ func TestPublishMessageNoLevelHookCalled(t *testing.T) {
 	obj.RegisterHook(enum.LevelDebug, debugHook)
 
 	obj.PreProcess(&mockEntry{
-		data:  map[string]any{},
+		data:  "",
 		level: enum.LevelError,
 	})
 	assert.Equal(t, "EventPreProcessorObserver", obj.Name())
@@ -68,7 +68,7 @@ func TestPublishMessage(t *testing.T) {
 	obj.RegisterHook(enum.LevelDebug, debugHook)
 
 	obj.PreProcess(&mockEntry{
-		data:  map[string]any{},
+		data:  "",
 		level: enum.LevelDebug,
 	})
 
@@ -84,7 +84,7 @@ func TestDeregister(t *testing.T) {
 	obj.RegisterHook(enum.LevelDebug, debugHook)
 	obj.DeRegisterHook(enum.LevelDebug, debugHook.Name())
 	obj.PreProcess(&mockEntry{
-		data:  map[string]any{},
+		data:  "",
 		level: enum.LevelDebug,
 	})
 

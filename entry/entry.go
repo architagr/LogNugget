@@ -3,6 +3,7 @@ package entry
 import (
 	"context"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,39 +13,14 @@ import (
 	"github.com/architagr/lognugget/model"
 )
 
-type preProcessingObserverContract interface {
-	PreProcess(entry *LogEntry)
-	Name() string
-}
-
-func InitPreProcessors(observers ...preProcessingObserverContract) {
-	eventPreProcessors = make(map[string]preProcessingObserverContract)
-	AddPreProcessors(observers...)
-}
-
-func AddPreProcessors(observers ...preProcessingObserverContract) {
-	for _, observer := range observers {
-		eventPreProcessors[observer.Name()] = observer
-	}
-}
-
-func RemovePreProcessor(name string) {
-	delete(eventPreProcessors, name)
-}
-
 var (
-	entryPool          sync.Pool
-	eventPreProcessors map[string]preProcessingObserverContract
+	entryPool sync.Pool
 )
 
 func init() {
 	entryPool = sync.Pool{
 		New: func() any {
-			return &LogEntry{
-				data:    make([]model.LogAttr, 0),
-				context: context.Background(),
-				time:    customTime.TimeNow(),
-			}
+			return initLogEntry()
 		},
 	}
 }
@@ -75,12 +51,25 @@ type LogEntry struct {
 // WithFields
 // WithTime
 
-func newLogEntry() *LogEntry {
+func NewLogEntry() *LogEntry {
 	e := entryPool.Get().(*LogEntry)
 	e.reset()
 	return e
 }
 
+func GenerateInitialPool(n int) {
+	for i := 0; i < n; i++ {
+		entryPool.Put(initLogEntry())
+	}
+}
+
+func initLogEntry() *LogEntry {
+	return &LogEntry{
+		data:    make([]model.LogAttr, 0),
+		context: context.Background(),
+		time:    customTime.TimeNow(),
+	}
+}
 func (e *LogEntry) reset() {
 	e.data = make([]model.LogAttr, 0)
 	e.context = context.Background()
@@ -151,7 +140,7 @@ func (e *LogEntry) WithLevel(level enum.LogLevel) *LogEntry {
 }
 
 func (e *LogEntry) Clone() *LogEntry {
-	clone := newLogEntry().
+	clone := NewLogEntry().
 		WithFields(e.data...).
 		WithTime(e.time).
 		WithCaller(e.caller).
@@ -226,17 +215,22 @@ func (e *LogEntry) Level() enum.LogLevel {
 }
 
 func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string, fields ...model.LogAttr) {
-
-	if e.published || config.GetConfig().MinLevel() > level || eventPreProcessors == nil {
+	if e.published || config.GetConfig().MinLevel() > level || config.EventPreProcessors == nil {
 		return
 	}
 
 	e.context = ctx
 	e.message = message
-	e.data = append(e.data, fields...)
+	defaultFields := config.GetConfig().DefaultFields()
+	for _, field := range fields {
+		if _, ok := defaultFields[enum.DefaultLogKey(field.Key)]; ok {
+			field.Key = "custon." + field.Key
+		}
+		e.data = append(e.data, field)
+	}
 	e.level = level
 
-	for _, observer := range eventPreProcessors {
+	for _, observer := range config.EventPreProcessors {
 		observer.PreProcess(e)
 	}
 	e.reset()
@@ -244,7 +238,6 @@ func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string,
 }
 
 func (e *LogEntry) Debug(ctx context.Context, message string, fields ...model.LogAttr) {
-
 	e.Log(enum.LevelDebug, ctx, message, fields...)
 }
 
@@ -274,84 +267,42 @@ func (e *LogEntry) Panic(ctx context.Context, err error, message string, fields 
 	panic(e.err) // Panic with the error
 }
 
-func (e *LogEntry) valueKey(data map[string]any, key string) {
-	if value, ok := data[key]; ok {
-		data["custon."+key] = value
-	}
-}
-
-func (e *LogEntry) setLogTime(data map[string]any) {
-	if e.time.IsZero() {
-		e.time = customTime.TimeNow()
-	}
-	defaultFields := config.GetConfig().DefaultFields()
-	e.valueKey(data, defaultFields[enum.DefaultLogKeyTime])
-	data[defaultFields[enum.DefaultLogKeyTime]] = customTime.Format(e.time, config.GetConfig().TimeFormat())
-}
-
-func (e *LogEntry) setLogLevel(data map[string]any) {
-	defaultFields := config.GetConfig().DefaultFields()
-	e.valueKey(data, defaultFields[enum.DefaultLogKeyLevel])
-	data[defaultFields[enum.DefaultLogKeyLevel]] = e.level.String()
-}
-
-func (e *LogEntry) setLogMessage(data map[string]any) {
-	defaultFields := config.GetConfig().DefaultFields()
-	e.valueKey(data, defaultFields[enum.DefaultLogKeyMessage])
-	data[defaultFields[enum.DefaultLogKeyMessage]] = e.message
-}
-
-func (e *LogEntry) setLogError(data map[string]any) {
-	if e.err == nil {
-		return
-	}
-	defaultFields := config.GetConfig().DefaultFields()
-	e.valueKey(data, defaultFields[enum.DefaultLogKeyError])
-	data[defaultFields[enum.DefaultLogKeyError]] = e.err.Error()
-}
-
-func (e *LogEntry) setLogCaller(data map[string]any) {
-	if e.caller == nil {
-		return
-	}
-	defaultFields := config.GetConfig().DefaultFields()
-	e.valueKey(data, defaultFields[enum.DefaultLogKeyCaller])
-	data[defaultFields[enum.DefaultLogKeyCaller]] = e.caller.Function
-}
-
-func (e *LogEntry) setLogContextFields(data map[string]any) {
+func (e *LogEntry) setLogContextFields(data []string) []string {
 	if e.context == nil {
-		return
+		return data
 	}
 	if ctxParser := config.GetConfig().ContextParser(); ctxParser != nil {
 		ctxFields := ctxParser(e.context)
 		for key, value := range ctxFields {
-			e.valueKey(data, string(key))
-			data[string(key)] = value
+			data = config.Foo(data, string(key), value)
 		}
 	}
+	return data
 }
 
-func (e *LogEntry) setLogStaticEnvFields(data map[string]any) {
-	for key, value := range config.GetConfig().StaticEnvFields() {
-		e.valueKey(data, string(key))
-		data[string(key)] = value
-	}
-}
-func (e *LogEntry) ToMap() map[string]any {
+func (e *LogEntry) ToMap() string {
 	if e.IsMessageEmpty() || e.IsTimeEmpty() {
-		return nil
+		return ""
 	}
-	data := make(map[string]any, len(e.data)+len(config.GetConfig().StaticEnvFields()))
-	e.setLogContextFields(data)
+	defaultFields := config.GetConfig().DefaultFields()
+	data := make([]string, 0, len(e.data)+1)
+	data = append(data, config.Bar(defaultFields[enum.DefaultLogKeyTime], customTime.Format(e.time, config.GetConfig().TimeFormat())))
+	data = append(data, config.Bar(defaultFields[enum.DefaultLogKeyLevel], e.level.String()))
+	data = append(data, config.Bar(defaultFields[enum.DefaultLogKeyMessage], e.message))
+	if e.err != nil {
+		data = append(data, config.Bar(defaultFields[enum.DefaultLogKeyError], e.err.Error()))
+	}
+	if e.caller != nil {
+		data = append(data, config.Bar(defaultFields[enum.DefaultLogKeyCaller], e.caller.Function))
+	}
+
+	data = e.setLogContextFields(data)
 	for _, field := range e.data {
-		data[string(field.Key)] = field.Value
+		data = config.Foo(data, string(field.Key), field.Value)
 	}
-	e.setLogStaticEnvFields(data)
-	e.setLogTime(data)
-	e.setLogLevel(data)
-	e.setLogMessage(data)
-	e.setLogError(data)
-	e.setLogCaller(data)
-	return data
+	str := strings.Join(data, ", ")
+	if config.GetConfig().StaticFields() != "" {
+		str += ", " + config.GetConfig().StaticFields()
+	}
+	return str
 }
