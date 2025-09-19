@@ -20,6 +20,7 @@ var (
 	DefaultOutput      io.Writer          = os.Stdout        // Default output writer
 	DefaultTimeFormat  string             = time.RFC822      // Default time format for log entries
 	DafaultLogBuffer   int                = 20               // Default buffer size for logs
+	DefaultPrefix      string             = "custom."
 )
 
 type StaticEnvFieldsParser = func() map[string]any
@@ -145,22 +146,17 @@ func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
 
 }
 
+var x = []string{}
+
 func Foo(key string, value any) string {
-	defaultFields := GetConfig().DefaultFields()
-	if slices.Contains([]string{
-		defaultFields[enum.DefaultLogKeyCaller],
-		defaultFields[enum.DefaultLogKeyError],
-		defaultFields[enum.DefaultLogKeyMessage],
-		defaultFields[enum.DefaultLogKeyLevel],
-		defaultFields[enum.DefaultLogKeyTime],
-	}, key) {
-		key = "custon." + key
+	if slices.Contains(x, key) {
+		key = DefaultPrefix + key
 	}
 	return Bar(key, value)
 }
 
 func Bar(key string, value any) string {
-	return fmt.Sprintf("\"%s\": %+v", key, value)
+	return fmt.Sprintf("\"%s\": \"%+v\"", key, value)
 }
 
 // SetContextFieldsParser sets the function to extract context fields
@@ -172,7 +168,7 @@ func SetContextFieldsParser(parser ContextFieldsParser) {
 // SetDefaultFields sets the default fields to log with every entry
 func SetDefaultFields(fields map[enum.DefaultLogKey]string) {
 	if fields == nil {
-
+		return
 	}
 	for key, value := range fields {
 		if len(string(key)) == 0 || len(value) == 0 {
@@ -180,7 +176,13 @@ func SetDefaultFields(fields map[enum.DefaultLogKey]string) {
 		}
 		defaultConfig.defaultFields[key] = value
 	}
-
+	x = []string{
+		defaultConfig.defaultFields[enum.DefaultLogKeyCaller],
+		defaultConfig.defaultFields[enum.DefaultLogKeyError],
+		defaultConfig.defaultFields[enum.DefaultLogKeyMessage],
+		defaultConfig.defaultFields[enum.DefaultLogKeyLevel],
+		defaultConfig.defaultFields[enum.DefaultLogKeyTime],
+	}
 }
 
 // GetConfig returns the current logger configuration

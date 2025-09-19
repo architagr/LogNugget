@@ -224,7 +224,7 @@ func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string,
 	defaultFields := config.GetConfig().DefaultFields()
 	for _, field := range fields {
 		if _, ok := defaultFields[enum.DefaultLogKey(field.Key)]; ok {
-			field.Key = "custon." + field.Key
+			field.Key = model.LogAttrKey(config.DefaultPrefix) + field.Key
 		}
 		e.data = append(e.data, field)
 	}
@@ -282,6 +282,7 @@ func (e *LogEntry) ToMap() string {
 	if e.IsMessageEmpty() || e.IsTimeEmpty() {
 		return ""
 	}
+	//. put this logic to the log method as this is getting 2 ittration
 	defaultFields := config.GetConfig().DefaultFields()
 	data := make([]string, 3+len(e.data), len(e.data)+5)
 	i := 0
@@ -291,7 +292,7 @@ func (e *LogEntry) ToMap() string {
 	i += 2
 	for _, field := range e.data {
 		i++
-		data[i] = config.Foo(string(field.Key), field.Value)
+		data[i] = config.Bar(string(field.Key), field.Value)
 	}
 
 	if e.err != nil {
