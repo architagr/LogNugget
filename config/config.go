@@ -133,7 +133,7 @@ func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
 	if parser != nil {
 		list := []string{}
 		for key, value := range parser() {
-			list = Foo(list, key, value)
+			list = append(list, Foo(key, value))
 		}
 		if len(list) > 0 {
 			defaultConfig.parsedStaticFields = strings.Join(list, ", ")
@@ -145,7 +145,7 @@ func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
 
 }
 
-func Foo(data []string, key string, value any) []string {
+func Foo(key string, value any) string {
 	defaultFields := GetConfig().DefaultFields()
 	if slices.Contains([]string{
 		defaultFields[enum.DefaultLogKeyCaller],
@@ -156,9 +156,7 @@ func Foo(data []string, key string, value any) []string {
 	}, key) {
 		key = "custon." + key
 	}
-
-	data = append(data, Bar(key, value))
-	return data
+	return Bar(key, value)
 }
 
 func Bar(key string, value any) string {
