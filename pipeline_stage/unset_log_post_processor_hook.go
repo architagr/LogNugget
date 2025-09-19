@@ -73,6 +73,7 @@ func (h *unsetLogEventPostProcessor) flushLogMessages() {
 func (h *unsetLogEventPostProcessor) printMessage(data [][]byte) {
 	for _, d := range data {
 		h.output.Write(d)
+		h.output.Write([]byte{'\n'})
 	}
 }
 

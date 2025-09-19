@@ -50,7 +50,7 @@ func TestPublishMessageWithIOAfterBufferReached(t *testing.T) {
 
 	obj.PublishLogMessage([]byte("test message 4"))
 
-	assert.Eventually(t, func() bool { return out.Count() == 3 }, 200*time.Millisecond, 50*time.Millisecond)
+	assert.Eventually(t, func() bool { return out.Count() == 6 }, 200*time.Millisecond, 50*time.Millisecond)
 }
 
 func TestPublishMessageWithIOAfterRate(t *testing.T) {
@@ -63,5 +63,5 @@ func TestPublishMessageWithIOAfterRate(t *testing.T) {
 	obj.PublishLogMessage([]byte("test message 2"))
 	obj.PublishLogMessage([]byte("test message 3"))
 
-	assert.Eventually(t, func() bool { return out.Count() == 3 }, time.Second, 50*time.Millisecond)
+	assert.Eventually(t, func() bool { return out.Count() == 6 }, time.Second, 50*time.Millisecond)
 }

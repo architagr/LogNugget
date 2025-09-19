@@ -224,7 +224,7 @@ func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string,
 	defaultFields := config.GetConfig().DefaultFields()
 	for _, field := range fields {
 		if _, ok := defaultFields[enum.DefaultLogKey(field.Key)]; ok {
-			field.Key = "custon." + field.Key
+			field.Key = model.LogAttrKey(config.DefaultPrefix) + field.Key
 		}
 		e.data = append(e.data, field)
 	}
@@ -267,28 +267,34 @@ func (e *LogEntry) Panic(ctx context.Context, err error, message string, fields 
 	panic(e.err) // Panic with the error
 }
 
-func (e *LogEntry) setLogContextFields(data []string) []string {
-	if e.context == nil {
+func (e *LogEntry) setLogContextFields() []string {
+	if ctxParser := config.GetConfig().ContextParser(); e.context != nil && ctxParser != nil {
+		data := []string{}
+		for key, value := range ctxParser(e.context) {
+			data = append(data, config.Foo(string(key), value))
+		}
 		return data
 	}
-	if ctxParser := config.GetConfig().ContextParser(); ctxParser != nil {
-		ctxFields := ctxParser(e.context)
-		for key, value := range ctxFields {
-			data = config.Foo(data, string(key), value)
-		}
-	}
-	return data
+	return nil
 }
 
 func (e *LogEntry) ToMap() string {
 	if e.IsMessageEmpty() || e.IsTimeEmpty() {
 		return ""
 	}
+	//. put this logic to the log method as this is getting 2 ittration
 	defaultFields := config.GetConfig().DefaultFields()
-	data := make([]string, 0, len(e.data)+1)
-	data = append(data, config.Bar(defaultFields[enum.DefaultLogKeyTime], customTime.Format(e.time, config.GetConfig().TimeFormat())))
-	data = append(data, config.Bar(defaultFields[enum.DefaultLogKeyLevel], e.level.String()))
-	data = append(data, config.Bar(defaultFields[enum.DefaultLogKeyMessage], e.message))
+	data := make([]string, 3+len(e.data), len(e.data)+5)
+	i := 0
+	data[i] = config.Bar(defaultFields[enum.DefaultLogKeyTime], customTime.Format(e.time, config.GetConfig().TimeFormat()))
+	data[i+1] = config.Bar(defaultFields[enum.DefaultLogKeyLevel], e.level.String())
+	data[i+2] = config.Bar(defaultFields[enum.DefaultLogKeyMessage], e.message)
+	i += 2
+	for _, field := range e.data {
+		i++
+		data[i] = config.Bar(string(field.Key), field.Value)
+	}
+
 	if e.err != nil {
 		data = append(data, config.Bar(defaultFields[enum.DefaultLogKeyError], e.err.Error()))
 	}
@@ -296,10 +302,7 @@ func (e *LogEntry) ToMap() string {
 		data = append(data, config.Bar(defaultFields[enum.DefaultLogKeyCaller], e.caller.Function))
 	}
 
-	data = e.setLogContextFields(data)
-	for _, field := range e.data {
-		data = config.Foo(data, string(field.Key), field.Value)
-	}
+	data = append(data, e.setLogContextFields()...)
 	str := strings.Join(data, ", ")
 	if config.GetConfig().StaticFields() != "" {
 		str += ", " + config.GetConfig().StaticFields()
