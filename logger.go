@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"time"
 
@@ -10,6 +14,7 @@ import (
 	"github.com/architagr/lognugget/enum"
 	"github.com/architagr/lognugget/model"
 	pipelineStage "github.com/architagr/lognugget/pipeline_stage"
+	"github.com/gin-gonic/gin"
 )
 
 func init() {
@@ -34,16 +39,32 @@ func init() {
 }
 
 func main() {
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	unsetPostProcessor := pipelineStage.NewUnsetLogEventPostProcessor(5*time.Second, 10, os.Stdout)
 
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, unsetPostProcessor)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
-	for i := 0; i < 10000; i++ {
-		ctx := context.WithValue(context.WithValue(context.Background(), "requestID", i), "userID", "User1234")
+	entry.GenerateInitialPool(10_000)
+
+	engine := gin.New()
+
+	engine.GET("/v1/user", func(ctx *gin.Context) {
+		ctxObj := context.WithValue(context.WithValue(ctx.Request.Context(), "requestID", 1), "userID", "User1234")
 		entryObj := entry.NewLogEntry()
-		entryObj.Debug(ctx, "debug message that has a log message", model.LogAttr{Key: model.LogAttrKey("itrr"), Value: model.LogAttrValue(i)}, model.LogAttr{Key: model.LogAttrKey("time"), Value: model.LogAttrValue(time.Now)})
+		a := []model.LogAttr{
+			{Key: model.LogAttrKey("itrr"), Value: model.LogAttrValue(ctx.RemoteIP)},
+			{Key: model.LogAttrKey("time"), Value: model.LogAttrValue(time.Now)},
+		}
+		entryObj.Debug(ctxObj, "debug message that has a log message", a...)
+		ctx.JSON(http.StatusOK, gin.H{
+			"message": "user retrieved",
+		})
+	})
+	if err := engine.Run(":8081"); err != nil {
+		log.Fatalf("[server] Failed to start server: %v", err)
 	}
-	time.Sleep(10 * time.Second)
-	os.Stdout.Write([]byte("asdad"))
+	fmt.Println("server stoped")
 	unsetPostProcessor.Stop()
 }

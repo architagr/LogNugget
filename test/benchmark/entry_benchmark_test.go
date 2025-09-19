@@ -42,6 +42,8 @@ func Benchmark_ZeroLog(b *testing.B) {
 
 }
 
+// 279054	      4163 ns/op	    2094 B/op	      36 allocs/op
+
 func Benchmark_Log(b *testing.B) {
 	b.StopTimer()
 	var buf bytes.Buffer
