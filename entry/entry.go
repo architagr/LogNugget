@@ -5,7 +5,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/architagr/lognugget/config"
 	customTime "github.com/architagr/lognugget/custom_time"
@@ -26,21 +25,6 @@ func init() {
 }
 
 type LogEntry struct {
-	// published indicates if the log entry has been published to the output stream
-	published bool
-	// data custom fields to be logged
-	data []model.LogAttr
-	// context current context object
-	context context.Context
-	// level the log entry was logged at: Trace, Debug, Info, Warn, Error, Fatal or Panic
-	// This field will be set on entry firing and the value will be equal to the one in Logger struct field.
-	level enum.LogLevel
-	// time time when the log entry was created
-	time time.Time
-	// message log message
-	message string
-	// Error in case of error
-	err error
 	// caller Calling method, with package name
 	caller *runtime.Frame // TODO: add a function to set caller from runtime.Caller
 }
@@ -64,248 +48,88 @@ func GenerateInitialPool(n int) {
 }
 
 func initLogEntry() *LogEntry {
-	return &LogEntry{
-		data:    make([]model.LogAttr, 0),
-		context: context.Background(),
-		time:    customTime.TimeNow(),
-	}
+	return &LogEntry{}
 }
 func (e *LogEntry) reset() {
-	e.data = make([]model.LogAttr, 0)
-	e.context = context.Background()
-	e.level = enum.LevelUnSet
-	e.time = customTime.TimeNow()
-	e.message = ""
-	e.err = nil
 	e.caller = nil
-	e.published = false
 }
 
 func (e *LogEntry) Put() {
 	entryPool.Put(e)
 }
 
-func (e *LogEntry) WithFields(fields ...model.LogAttr) *LogEntry {
-	if e.published || len(fields) == 0 {
-		return e
-	}
-	e.data = append(e.data, fields...)
-	return e
-}
-
-func (e *LogEntry) WithTime(t time.Time) *LogEntry {
-	if e.published {
-		return e
-	}
-	if t.IsZero() {
-		t = customTime.TimeNow()
-	}
-	e.time = t
-	return e
-}
-
-func (e *LogEntry) WithContext(ctx context.Context) *LogEntry {
-	if e.published {
-		return e
-	}
-	e.context = ctx
-	return e
-}
-
-func (e *LogEntry) WithCaller(caller *runtime.Frame) *LogEntry {
-	if e.published {
-		return e
-	}
-	if caller == nil {
-		return e
-	}
-	e.caller = caller
-	return e
-}
-
-func (e *LogEntry) WithMessage(msg string) *LogEntry {
-	if e.published {
-		return e
-	}
-	e.message = msg
-	return e
-}
-
-func (e *LogEntry) WithLevel(level enum.LogLevel) *LogEntry {
-	if e.published || level < enum.LevelDebug || level > enum.LevelError {
-		return e
-	}
-	e.level = level
-	return e
-}
-
-func (e *LogEntry) Clone() *LogEntry {
-	clone := NewLogEntry().
-		WithFields(e.data...).
-		WithTime(e.time).
-		WithCaller(e.caller).
-		WithLevel(e.level).
-		WithContext(e.context).
-		WithMessage(e.message)
-	return clone
-}
-
-func (e *LogEntry) IsEmpty() bool {
-	return e == nil || (len(e.data) == 0 && e.context == nil && e.time.IsZero() && e.message == "" && e.err == nil && e.caller == nil)
-}
-
-func (e *LogEntry) IsValid() bool {
-	return e != nil && !e.time.IsZero() && e.level >= enum.LevelDebug && e.level <= enum.LevelError
-}
-
-func (e *LogEntry) IsError() bool {
-	return e != nil && e.err != nil
-}
-
-func (e *LogEntry) IsDebug() bool {
-	return e != nil && e.level == enum.LevelDebug
-}
-
-func (e *LogEntry) IsInfo() bool {
-	return e != nil && e.level == enum.LevelInfo
-}
-
-func (e *LogEntry) IsWarnLevel() bool {
-	return e != nil && e.level == enum.LevelWarn
-}
-
-func (e *LogEntry) IsTraceLevel() bool {
-	return e != nil && e.level == enum.LevelDebug // Assuming Trace is equivalent to Debug in this context
-}
-
-func (e *LogEntry) IsErrorLevel() bool {
-	return e != nil && e.level == enum.LevelError
-}
-
-func (e *LogEntry) IsFatalLevel() bool {
-	return e != nil && e.level == enum.LevelFatal && e.err != nil
-}
-
-func (e *LogEntry) IsPanicLevel() bool {
-	return e != nil && e.level == enum.LevelFatal && e.err != nil && e.caller != nil && e.caller.Function == "runtime.panic"
-}
-
-func (e *LogEntry) IsContextEmpty() bool {
-	return e == nil || (e.context == nil || e.context == context.Background())
-}
-
-func (e *LogEntry) IsDataEmpty() bool {
-	return e == nil || (len(e.data) == 0)
-}
-
-func (e *LogEntry) IsTimeEmpty() bool {
-	return e == nil || (e.time.IsZero())
-}
-
-func (e *LogEntry) IsMessageEmpty() bool {
-	return e == nil || (e.message == "")
-}
-
-func (e *LogEntry) IsCallerEmpty() bool {
-	return e == nil || (e.caller == nil)
-}
-
-func (e *LogEntry) Level() enum.LogLevel {
-	return e.level
-}
-
-func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string, fields ...model.LogAttr) {
-	if e.published || config.GetConfig().MinLevel() > level || config.EventPreProcessors == nil {
+func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string, err error, fields ...model.LogAttr) {
+	if config.GetConfig().MinLevel() > level || config.EventPreProcessors == nil {
 		return
 	}
 
-	e.context = ctx
-	e.message = message
 	defaultFields := config.GetConfig().DefaultFields()
+	ctxData := e.setLogContextFields(ctx)
+	data := make([]string, 3+len(fields)+len(ctxData), len(fields)+5)
+	i := 0
+	data[i] = config.ParseLogField(defaultFields[enum.DefaultLogKeyTime], customTime.Format(customTime.TimeNow(), config.GetConfig().TimeFormat()))
+	data[i+1] = config.ParseLogField(defaultFields[enum.DefaultLogKeyLevel], level.String())
+	data[i+2] = config.ParseLogField(defaultFields[enum.DefaultLogKeyMessage], message)
+	i += 2
 	for _, field := range fields {
 		if _, ok := defaultFields[enum.DefaultLogKey(field.Key)]; ok {
 			field.Key = model.LogAttrKey(config.DefaultPrefix) + field.Key
 		}
-		e.data = append(e.data, field)
-	}
-	e.level = level
-
-	for _, observer := range config.EventPreProcessors {
-		observer.PreProcess(e)
-	}
-	e.reset()
-	e.Put()
-}
-
-func (e *LogEntry) Debug(ctx context.Context, message string, fields ...model.LogAttr) {
-	e.Log(enum.LevelDebug, ctx, message, fields...)
-}
-
-func (e *LogEntry) Info(ctx context.Context, message string, fields ...model.LogAttr) {
-	e.Log(enum.LevelInfo, ctx, message, fields...)
-}
-func (e *LogEntry) Warn(ctx context.Context, message string, fields ...model.LogAttr) {
-	e.Log(enum.LevelWarn, ctx, message, fields...)
-}
-func (e *LogEntry) Error(ctx context.Context, err error, message string, fields ...model.LogAttr) {
-	e.err = err
-	e.Log(enum.LevelError, ctx, message, fields...)
-}
-
-func (e *LogEntry) Fatal(ctx context.Context, err error, message string, fields ...model.LogAttr) {
-	if e.published {
-		return
-	}
-	e.Error(ctx, err, message, fields...)
-	runtime.Goexit() // Exit the program after logging fatal error
-}
-func (e *LogEntry) Panic(ctx context.Context, err error, message string, fields ...model.LogAttr) {
-	if e.published {
-		return
-	}
-	e.Error(ctx, err, message, fields...)
-	panic(e.err) // Panic with the error
-}
-
-func (e *LogEntry) setLogContextFields() []string {
-	if ctxParser := config.GetConfig().ContextParser(); e.context != nil && ctxParser != nil {
-		data := []string{}
-		for key, value := range ctxParser(e.context) {
-			data = append(data, config.Foo(string(key), value))
-		}
-		return data
-	}
-	return nil
-}
-
-func (e *LogEntry) ToMap() string {
-	if e.IsMessageEmpty() || e.IsTimeEmpty() {
-		return ""
-	}
-	//. put this logic to the log method as this is getting 2 ittration
-	defaultFields := config.GetConfig().DefaultFields()
-	data := make([]string, 3+len(e.data), len(e.data)+5)
-	i := 0
-	data[i] = config.Bar(defaultFields[enum.DefaultLogKeyTime], customTime.Format(e.time, config.GetConfig().TimeFormat()))
-	data[i+1] = config.Bar(defaultFields[enum.DefaultLogKeyLevel], e.level.String())
-	data[i+2] = config.Bar(defaultFields[enum.DefaultLogKeyMessage], e.message)
-	i += 2
-	for _, field := range e.data {
 		i++
-		data[i] = config.Bar(string(field.Key), field.Value)
+		data[i] = config.ParseLogField(string(field.Key), field.Value)
 	}
 
-	if e.err != nil {
-		data = append(data, config.Bar(defaultFields[enum.DefaultLogKeyError], e.err.Error()))
+	for x, d := range ctxData {
+		data[i+x] = d
+	}
+	if err != nil {
+		data = append(data, config.ParseLogField(defaultFields[enum.DefaultLogKeyError], err.Error()))
 	}
 	if e.caller != nil {
-		data = append(data, config.Bar(defaultFields[enum.DefaultLogKeyCaller], e.caller.Function))
+		data = append(data, config.ParseLogField(defaultFields[enum.DefaultLogKeyCaller], e.caller.Function))
 	}
-
-	data = append(data, e.setLogContextFields()...)
 	str := strings.Join(data, ", ")
 	if config.GetConfig().StaticFields() != "" {
 		str += ", " + config.GetConfig().StaticFields()
 	}
-	return str
+
+	en := config.GetConfig().Encoder()
+	byteData, _ := en.Write(str)
+	config.PublishLog(level, byteData)
+
+	e.Put()
+}
+
+func (e *LogEntry) Debug(ctx context.Context, message string, fields ...model.LogAttr) {
+	e.Log(enum.LevelDebug, ctx, message, nil, fields...)
+}
+
+func (e *LogEntry) Info(ctx context.Context, message string, fields ...model.LogAttr) {
+	e.Log(enum.LevelInfo, ctx, message, nil, fields...)
+}
+func (e *LogEntry) Warn(ctx context.Context, message string, fields ...model.LogAttr) {
+	e.Log(enum.LevelWarn, ctx, message, nil, fields...)
+}
+func (e *LogEntry) Error(ctx context.Context, err error, message string, fields ...model.LogAttr) {
+	e.Log(enum.LevelError, ctx, message, err, fields...)
+}
+
+func (e *LogEntry) Fatal(ctx context.Context, err error, message string, fields ...model.LogAttr) {
+	e.Error(ctx, err, message, fields...)
+	runtime.Goexit() // Exit the program after logging fatal error
+}
+func (e *LogEntry) Panic(ctx context.Context, err error, message string, fields ...model.LogAttr) {
+	e.Error(ctx, err, message, fields...)
+	panic(err) // Panic with the error
+}
+
+func (e *LogEntry) setLogContextFields(ctx context.Context) []string {
+	if ctxParser := config.GetConfig().ContextParser(); ctx != nil && ctxParser != nil {
+		data := []string{}
+		for key, value := range ctxParser(ctx) {
+			data = append(data, config.ValidateandParseLogField(string(key), value))
+		}
+		return data
+	}
+	return nil
 }

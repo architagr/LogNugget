@@ -32,13 +32,17 @@ func (l LogLevel) String() string {
 		return fmt.Sprintf("%s%+d", base, val)
 	}
 
-	switch {
-	case l < LevelInfo:
-		return str("DEBUG", l-LevelDebug)
-	case l < LevelWarn:
-		return str("INFO", l-LevelInfo)
-	case l < LevelError:
-		return str("WARN", l-LevelWarn)
+	switch l {
+	case LevelInfo:
+		return "INFO"
+	case LevelDebug:
+		return "DEBUG"
+	case LevelWarn:
+		return "WARN"
+	case LevelError:
+		return "ERROR"
+	case LevelFatal:
+		return "FATAL"
 	default:
 		return str("ERROR", l-LevelError)
 	}

@@ -23,6 +23,10 @@ var (
 	DefaultPrefix      string             = "custom."
 )
 
+type PublishLogMessageHookContract interface {
+	PublishLogMessage(entry []byte)
+	Name() string
+}
 type StaticEnvFieldsParser = func() map[string]any
 type ContextFieldsParser = func(ctx context.Context) map[string]any
 
@@ -42,19 +46,22 @@ type Config struct {
 	contextParser      ContextFieldsParser           // Function to extract context fields
 	defaultFields      map[enum.DefaultLogKey]string // Default fields to log with every entry
 	timeFormat         string                        // Time format for log entries
+	hooks              map[enum.LogLevel]map[string]PublishLogMessageHookContract
+}
+
+type LogEvent struct {
+	Level enum.LogLevel
+	Data  []byte
 }
 
 var (
 	defaultConfig      *Config
+	ch                 chan LogEvent
 	EventPreProcessors map[string]preProcessingObserverContract
 )
 
-type LogEntryContract interface {
-	ToMap() string
-	Level() enum.LogLevel
-}
 type preProcessingObserverContract interface {
-	PreProcess(entry LogEntryContract)
+	PreProcess(level enum.LogLevel, logMsg []byte)
 	Name() string
 }
 
@@ -111,6 +118,13 @@ func SetOutput(output io.Writer) {
 
 }
 
+func PublishLog(Level enum.LogLevel, Data []byte) {
+	ch <- LogEvent{
+		Level: Level,
+		Data:  Data,
+	}
+}
+
 // SetLogBufferMaxSize sets the maximum buffer size for logs
 func SetLogBufferMaxSize(size int) {
 	if size <= 0 {
@@ -129,12 +143,41 @@ func SetRate(rate time.Duration) {
 
 }
 
+var restrictedFields []string
+
+func ValidateandParseLogField(key string, value any) string {
+	if slices.Contains(restrictedFields, key) {
+		key = DefaultPrefix + key
+	}
+	return ParseLogField(key, value)
+}
+
+func ParseLogField(key string, value any) string {
+	sb := strings.Builder{}
+	sb.Grow(100 + len(key))
+	sb.WriteString("\"")
+	sb.WriteString(key)
+	sb.WriteString("\": \"")
+	switch value := value.(type) {
+	case string:
+		sb.WriteString(value)
+	case int, int16, int32, int64:
+		sb.WriteString(fmt.Sprintf("%d", value))
+	case float32, float64:
+		sb.WriteString(fmt.Sprintf("%f", value))
+	default:
+		sb.WriteString(fmt.Sprintf("%+v", value))
+	}
+	sb.WriteString("\"")
+	return sb.String()
+}
+
 // SetStaticEnvFieldsParser sets the function to extract static environment fields
 func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
 	if parser != nil {
 		list := []string{}
 		for key, value := range parser() {
-			list = append(list, Foo(key, value))
+			list = append(list, ValidateandParseLogField(key, value))
 		}
 		if len(list) > 0 {
 			defaultConfig.parsedStaticFields = strings.Join(list, ", ")
@@ -146,23 +189,28 @@ func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
 
 }
 
-var x = []string{}
-
-func Foo(key string, value any) string {
-	if slices.Contains(x, key) {
-		key = DefaultPrefix + key
-	}
-	return Bar(key, value)
-}
-
-func Bar(key string, value any) string {
-	return fmt.Sprintf("\"%s\": \"%+v\"", key, value)
-}
-
 // SetContextFieldsParser sets the function to extract context fields
 func SetContextFieldsParser(parser ContextFieldsParser) {
 	defaultConfig.contextParser = parser
 
+}
+
+func RegisterHook(level enum.LogLevel, hook PublishLogMessageHookContract) {
+	levelHooks, exists := defaultConfig.hooks[level]
+	if !exists {
+		levelHooks = make(map[string]PublishLogMessageHookContract)
+	}
+	levelHooks[hook.Name()] = hook
+	defaultConfig.hooks[level] = levelHooks
+}
+
+func DeRegisterHook(level enum.LogLevel, hookName string) {
+	levelHooks, exists := defaultConfig.hooks[level]
+	if !exists {
+		return
+	}
+	delete(levelHooks, hookName)
+	defaultConfig.hooks[level] = levelHooks
 }
 
 // SetDefaultFields sets the default fields to log with every entry
@@ -176,7 +224,7 @@ func SetDefaultFields(fields map[enum.DefaultLogKey]string) {
 		}
 		defaultConfig.defaultFields[key] = value
 	}
-	x = []string{
+	restrictedFields = []string{
 		defaultConfig.defaultFields[enum.DefaultLogKeyCaller],
 		defaultConfig.defaultFields[enum.DefaultLogKeyError],
 		defaultConfig.defaultFields[enum.DefaultLogKeyMessage],
@@ -190,8 +238,18 @@ func GetConfig() *Config {
 	return defaultConfig
 }
 
+func ProcessLogEvent() {
+	for e := range ch {
+		for _, observer := range EventPreProcessors {
+			observer.PreProcess(e.Level, e.Data)
+		}
+	}
+}
+
 // ResetConfig resets the logger configuration to default values
 func ResetConfig() {
+	ch = make(chan LogEvent, 10)
+	go ProcessLogEvent()
 	encoderObj, _ := encoder.DefaultEncoderFactory(enum.EncoderJSON)
 	defaultConfig = &Config{
 		minLevel:           DafaultLevel,
