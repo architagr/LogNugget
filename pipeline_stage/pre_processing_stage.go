@@ -3,7 +3,6 @@ package pipelineStage
 import (
 	"sync"
 
-	"github.com/architagr/lognugget/config"
 	"github.com/architagr/lognugget/enum"
 )
 
@@ -14,11 +13,6 @@ func init() {
 		EventPreProcessorObj = newEventPreProcessingObserver()
 	})
 }
-
-// type logEntryContract interface {
-// 	ToMap() map[string]any
-// 	Level() enum.LogLevel
-// }
 
 type publishLogMessageHookContract interface {
 	PublishLogMessage(entry []byte)
@@ -53,20 +47,14 @@ func (e *eventPreProcessorObserver) DeRegisterHook(level enum.LogLevel, hookName
 	e.hooks[level] = levelHooks
 }
 
-func (e *eventPreProcessorObserver) PreProcess(entryObj config.LogEntryContract) {
-	byteData, err := config.GetConfig().Encoder().Write(entryObj.ToMap())
-	if err != nil {
-		return
-	}
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	go publish(byteData, e.hooks[enum.LevelUnSet], &wg)
-	go publish(byteData, e.hooks[entryObj.Level()], &wg)
-	wg.Wait()
+func (e *eventPreProcessorObserver) PreProcess(level enum.LogLevel, logMsg []byte) {
+	publish(logMsg, e.hooks[enum.LevelUnSet])
+	publish(logMsg, e.hooks[level])
+
 }
 
-func publish(byteData []byte, hooks map[string]publishLogMessageHookContract, wg *sync.WaitGroup) {
-	defer wg.Done()
+func publish(byteData []byte, hooks map[string]publishLogMessageHookContract /*, wg *sync.WaitGroup*/) {
+	// defer wg.Done()
 	for _, unsetHook := range hooks {
 		unsetHook.PublishLogMessage(byteData)
 	}

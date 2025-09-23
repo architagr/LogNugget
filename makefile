@@ -19,3 +19,6 @@ test-coverage:
 	@echo "Coverage report generated at $(coverageHTML)"
 	@echo "Opening coverage report in browser..."
 	open -a "Safari" $(coverageHTML)
+
+pprof-report:
+	go tool pprof -http=":8086" http://localhost:6060/debug/pprof/profile

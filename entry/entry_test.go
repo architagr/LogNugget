@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,15 +15,15 @@ import (
 )
 
 type TestPreProcessorObserver struct {
-	logEntry      string
+	logEntry      []byte
 	isExecuted    bool
 	timeToProcess time.Duration
 }
 
-func (t *TestPreProcessorObserver) PreProcess(entry config.LogEntryContract) {
+func (t *TestPreProcessorObserver) PreProcess(level enum.LogLevel, logMsg []byte) {
 	t.isExecuted = true
 	n := time.Now()
-	t.logEntry = entry.ToMap()
+	t.logEntry = logMsg
 	t.timeToProcess = time.Since(n)
 }
 
@@ -62,18 +63,20 @@ func TestEntryForDebugWithMinLogLevelAsDebug(t *testing.T) {
 		{Key: model.LogAttrKey("id"), Value: model.LogAttrValue(1)},
 		{Key: model.LogAttrKey("message"), Value: model.LogAttrValue("message")},
 	}...)
+	time.Sleep(10 * time.Millisecond)
 	defaultFields := config.GetConfig().DefaultFields()
-
+	logMsg := string(observer.logEntry)
+	fmt.Println(logMsg)
 	assert.True(t, observer.isExecuted, "Pre processor should be executed for debug log when min log level is debug")
-	assert.Contains(t, observer.logEntry, config.Bar("app_name", "lognugget"), "Static field app_name should be set")
-	assert.Contains(t, observer.logEntry, config.Bar("version", "1.0.0"), "Static field version should be set")
-	assert.Contains(t, observer.logEntry, config.Bar("request_id", "12345"), "Context field request_id should be set")
-	assert.Contains(t, observer.logEntry, config.Bar("id", "1"), "Field id should be set")
-	assert.Contains(t, observer.logEntry, config.Bar(config.DefaultPrefix+"message", "message"), "Field message should be set")
-	assert.Contains(t, observer.logEntry, config.Bar(defaultFields[enum.DefaultLogKeyMessage], "This is a debug message"), "Log message should match")
-	assert.Contains(t, observer.logEntry, defaultFields[enum.DefaultLogKeyTime], "Log entry should have a time field")
-	assert.Contains(t, observer.logEntry, config.Bar(defaultFields[enum.DefaultLogKeyLevel], enum.LevelDebug.String()), "Log message should match")
-	assert.NotContains(t, observer.logEntry, "caller", "Log entry should have a caller field")
+	assert.Contains(t, logMsg, config.ParseLogField("app_name", "lognugget"), "Static field app_name should be set")
+	assert.Contains(t, logMsg, config.ParseLogField("version", "1.0.0"), "Static field version should be set")
+	assert.Contains(t, logMsg, config.ParseLogField("request_id", "12345"), "Context field request_id should be set")
+	assert.Contains(t, logMsg, config.ParseLogField("id", "1"), "Field id should be set")
+	assert.Contains(t, logMsg, config.ParseLogField(config.DefaultPrefix+"message", "message"), "Field message should be set")
+	assert.Contains(t, logMsg, config.ParseLogField(defaultFields[enum.DefaultLogKeyMessage], "This is a debug message"), "Log message should match")
+	assert.Contains(t, logMsg, defaultFields[enum.DefaultLogKeyTime], "Log entry should have a time field")
+	assert.Contains(t, logMsg, config.ParseLogField(defaultFields[enum.DefaultLogKeyLevel], enum.LevelDebug.String()), "Log message should match")
+	assert.NotContains(t, logMsg, "caller", "Log entry should have a caller field")
 	// assert.LessOrEqual(t, observer.timeToProcess.Microseconds(), int64(timeoutForSingleLogProcessing.Microseconds()), "Pre processor should process log entry within the timeout")
 }
 
@@ -108,6 +111,7 @@ func TestEntryForDebugWithMinLogLevelAsError(t *testing.T) {
 		{Key: model.LogAttrKey("id"), Value: model.LogAttrValue(1)},
 		{Key: model.LogAttrKey("message"), Value: model.LogAttrValue("message")},
 	}...)
+	time.Sleep(10 * time.Millisecond)
 	assert.False(t, observer.isExecuted, "Pre processor should not be executed for debug log when min log level is error")
 }
 
@@ -140,21 +144,21 @@ func TestEntryForErrorWithMinLogLevelAsDebug(t *testing.T) {
 		{Key: model.LogAttrKey("id"), Value: model.LogAttrValue(1)},
 		{Key: model.LogAttrKey("message"), Value: model.LogAttrValue("message")},
 	}...)
-
+	time.Sleep(10 * time.Millisecond)
 	defaultFields := config.GetConfig().DefaultFields()
-
+	logMsg := string(observer.logEntry)
 	assert.True(t, observer.isExecuted, "Pre processor should be executed for debug log when min log level is debug")
 
 	assert.True(t, observer.isExecuted, "Pre processor should be executed for debug log when min log level is debug")
-	assert.Contains(t, observer.logEntry, config.Bar("app_name", "lognugget"), "Static field app_name should be set")
-	assert.Contains(t, observer.logEntry, config.Bar("version", "1.0.0"), "Static field version should be set")
-	assert.Contains(t, observer.logEntry, config.Bar("request_id", "12345"), "Context field request_id should be set")
-	assert.Contains(t, observer.logEntry, config.Bar("id", "1"), "Field id should be set")
-	assert.Contains(t, observer.logEntry, config.Bar(config.DefaultPrefix+"message", "message"), "Field message should be set")
-	assert.Contains(t, observer.logEntry, config.Bar(defaultFields[enum.DefaultLogKeyMessage], "This is a error message"), "Log message should match")
-	assert.Contains(t, observer.logEntry, defaultFields[enum.DefaultLogKeyTime], "Log entry should have a time field")
-	assert.Contains(t, observer.logEntry, config.Bar(defaultFields[enum.DefaultLogKeyLevel], enum.LevelError.String()), "Log message should match")
-	assert.NotContains(t, observer.logEntry, "caller", "Log entry should have a caller field")
-	assert.Contains(t, observer.logEntry, config.Bar(defaultFields[enum.DefaultLogKeyError], "not found"), "Field error should be set")
+	assert.Contains(t, logMsg, config.ParseLogField("app_name", "lognugget"), "Static field app_name should be set")
+	assert.Contains(t, logMsg, config.ParseLogField("version", "1.0.0"), "Static field version should be set")
+	assert.Contains(t, logMsg, config.ParseLogField("request_id", "12345"), "Context field request_id should be set")
+	assert.Contains(t, logMsg, config.ParseLogField("id", "1"), "Field id should be set")
+	assert.Contains(t, logMsg, config.ParseLogField(config.DefaultPrefix+"message", "message"), "Field message should be set")
+	assert.Contains(t, logMsg, config.ParseLogField(defaultFields[enum.DefaultLogKeyMessage], "This is a error message"), "Log message should match")
+	assert.Contains(t, logMsg, defaultFields[enum.DefaultLogKeyTime], "Log entry should have a time field")
+	assert.Contains(t, logMsg, config.ParseLogField(defaultFields[enum.DefaultLogKeyLevel], enum.LevelError.String()), "Log level should match")
+	assert.NotContains(t, logMsg, "caller", "Log entry should have a caller field")
+	assert.Contains(t, logMsg, config.ParseLogField(defaultFields[enum.DefaultLogKeyError], "not found"), "Field error should be set")
 	// assert.LessOrEqual(t, observer.timeToProcess.Microseconds(), int64(timeoutForSingleLogProcessing.Microseconds()), "Pre processor should process log entry within the timeout")
 }

@@ -7,18 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type mockEntry struct {
-	data  string
-	level enum.LogLevel
-}
-
-func (e *mockEntry) ToMap() string {
-	return e.data
-}
-func (e *mockEntry) Level() enum.LogLevel {
-	return e.level
-}
-
 type mockUnsetHook struct {
 	isCalled bool
 }
@@ -51,10 +39,7 @@ func TestPublishMessageNoLevelHookCalled(t *testing.T) {
 	obj.RegisterHook(enum.LevelUnSet, unsetHook)
 	obj.RegisterHook(enum.LevelDebug, debugHook)
 
-	obj.PreProcess(&mockEntry{
-		data:  "",
-		level: enum.LevelError,
-	})
+	obj.PreProcess(enum.LevelError, []byte(""))
 	assert.Equal(t, "EventPreProcessorObserver", obj.Name())
 	assert.True(t, unsetHook.isCalled)
 	assert.False(t, debugHook.isCalled)
@@ -67,10 +52,7 @@ func TestPublishMessage(t *testing.T) {
 	obj.RegisterHook(enum.LevelUnSet, unsetHook)
 	obj.RegisterHook(enum.LevelDebug, debugHook)
 
-	obj.PreProcess(&mockEntry{
-		data:  "",
-		level: enum.LevelDebug,
-	})
+	obj.PreProcess(enum.LevelDebug, []byte(""))
 
 	assert.True(t, unsetHook.isCalled)
 	assert.True(t, debugHook.isCalled)
@@ -83,11 +65,7 @@ func TestDeregister(t *testing.T) {
 	obj.RegisterHook(enum.LevelUnSet, unsetHook)
 	obj.RegisterHook(enum.LevelDebug, debugHook)
 	obj.DeRegisterHook(enum.LevelDebug, debugHook.Name())
-	obj.PreProcess(&mockEntry{
-		data:  "",
-		level: enum.LevelDebug,
-	})
-
+	obj.PreProcess(enum.LevelDebug, []byte(""))
 	assert.True(t, unsetHook.isCalled)
 	assert.False(t, debugHook.isCalled)
 }
