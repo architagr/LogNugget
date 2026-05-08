@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 540" font-family="monospace" font-size="12">
+  <defs>
+    <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#222"/>
+    </marker>
+    <style>
+      .caller{fill:#eef; stroke:#225; stroke-width:1.2;}
+      .ch{fill:#fde; stroke:#a25; stroke-width:1.5;}
+      .disp{fill:#efe; stroke:#272; stroke-width:1.2;}
+      .pre{fill:#ffe; stroke:#a80; stroke-width:1.2;}
+      .hook{fill:#eef8ff; stroke:#26a; stroke-width:1.2;}
+      .post{fill:#feeefa; stroke:#a26; stroke-width:1.2;}
+      .io{fill:#eee; stroke:#444; stroke-width:1.2;}
+      .ttl{font-size:14px; font-weight:bold;}
+    </style>
+  </defs>
+
+  <text x="20" y="22" class="ttl">Pipeline overview: caller goroutines -&gt; channel -&gt; dispatcher -&gt; pre-processor -&gt; hooks -&gt; post-processor -&gt; io.Writer</text>
+
+  <!-- Caller goroutines -->
+  <rect x="20" y="60" width="160" height="50" rx="6" class="caller"/>
+  <text x="30" y="80">caller goroutine 1</text>
+  <text x="30" y="100">entry.Info(ctx,..)</text>
+  <rect x="20" y="120" width="160" height="50" rx="6" class="caller"/>
+  <text x="30" y="140">caller goroutine 2</text>
+  <text x="30" y="160">entry.Warn(ctx,..)</text>
+  <rect x="20" y="180" width="160" height="50" rx="6" class="caller"/>
+  <text x="30" y="200">caller goroutine N</text>
+  <text x="30" y="220">entry.Error(...)</text>
+
+  <!-- Channel -->
+  <rect x="220" y="100" width="120" height="100" rx="6" class="ch"/>
+  <text x="230" y="120">chan LogEvent</text>
+  <text x="230" y="140">buffer=10 (F22)</text>
+  <text x="230" y="160">block on full</text>
+  <text x="230" y="180">(F23, NF5)</text>
+
+  <!-- Dispatcher -->
+  <rect x="380" y="100" width="160" height="100" rx="6" class="disp"/>
+  <text x="390" y="120">dispatcher goroutine</text>
+  <text x="390" y="140">config.ProcessLogEvent</text>
+  <text x="390" y="160">single, sync.Once start</text>
+  <text x="390" y="180">(F21, NF8)</text>
+
+  <!-- Pre-processor -->
+  <rect x="580" y="100" width="180" height="100" rx="6" class="pre"/>
+  <text x="590" y="120">EventPreProcessor</text>
+  <text x="590" y="140">fan out to hooks:</text>
+  <text x="590" y="160">  hooks[LevelUnSet]</text>
+  <text x="590" y="180">  hooks[event.Level] (F19)</text>
+
+  <!-- Hooks -->
+  <rect x="800" y="40" width="160" height="50" rx="6" class="hook"/>
+  <text x="810" y="60">user hook A (Datadog)</text>
+  <text x="810" y="80">PublishLogMessage</text>
+  <rect x="800" y="100" width="160" height="50" rx="6" class="hook"/>
+  <text x="810" y="120">user hook B (Loki)</text>
+  <text x="810" y="140">PublishLogMessage</text>
+  <rect x="800" y="160" width="160" height="60" rx="6" class="post"/>
+  <text x="810" y="180">unsetPostProcessor</text>
+  <text x="810" y="198">default (F20)</text>
+  <text x="810" y="214">batched async</text>
+
+  <!-- Post-processor internals -->
+  <rect x="160" y="280" width="640" height="220" rx="6" fill="#fafafa" stroke="#888"/>
+  <text x="170" y="302" class="ttl">unsetLogEventPostProcessor (default sink, F20, F24, F30):</text>
+
+  <rect x="180" y="320" width="160" height="60" rx="6" class="post"/>
+  <text x="190" y="340">PublishLogMessage</text>
+  <text x="190" y="358">append to activeBucket</text>
+  <text x="190" y="374">mu locked (NF9)</text>
+
+  <rect x="360" y="320" width="160" height="60" rx="6" class="post"/>
+  <text x="370" y="340">trigger flush:</text>
+  <text x="370" y="358">  size &gt;= max OR</text>
+  <text x="370" y="374">  ticker.C fires</text>
+
+  <rect x="540" y="320" width="160" height="60" rx="6" class="post"/>
+  <text x="550" y="340">swap bucket atomically</text>
+  <text x="550" y="358">spawn flush goroutine</text>
+  <text x="550" y="374">(non-blocking)</text>
+
+  <rect x="180" y="400" width="160" height="60" rx="6" class="post"/>
+  <text x="190" y="420">flushGoroutine:</text>
+  <text x="190" y="438">  for d in bucket:</text>
+  <text x="190" y="454">    output.Write(d)</text>
+
+  <rect x="360" y="400" width="160" height="60" rx="6" class="post"/>
+  <text x="370" y="420">activeBucketWatcher:</text>
+  <text x="370" y="438">  ticker | stopCh</text>
+  <text x="370" y="454">  Stop drains then exits</text>
+
+  <rect x="540" y="400" width="160" height="60" rx="6" class="io"/>
+  <text x="550" y="420">io.Writer</text>
+  <text x="550" y="438">os.Stdout default</text>
+  <text x="550" y="454">writes silently dropped</text>
+  <text x="550" y="472">on error (NF10)</text>
+
+  <!-- Arrows: callers -> channel -->
+  <line x1="180" y1="85" x2="220" y2="120" stroke="#222" stroke-width="1.4" marker-end="url(#ar2)"/>
+  <line x1="180" y1="145" x2="220" y2="150" stroke="#222" stroke-width="1.4" marker-end="url(#ar2)"/>
+  <line x1="180" y1="205" x2="220" y2="180" stroke="#222" stroke-width="1.4" marker-end="url(#ar2)"/>
+  <!-- channel -> dispatcher -->
+  <line x1="340" y1="150" x2="380" y2="150" stroke="#222" stroke-width="1.4" marker-end="url(#ar2)"/>
+  <!-- dispatcher -> preprocessor -->
+  <line x1="540" y1="150" x2="580" y2="150" stroke="#222" stroke-width="1.4" marker-end="url(#ar2)"/>
+  <!-- preprocessor -> hooks -->
+  <line x1="760" y1="120" x2="800" y2="65" stroke="#222" stroke-width="1.4" marker-end="url(#ar2)"/>
+  <line x1="760" y1="150" x2="800" y2="125" stroke="#222" stroke-width="1.4" marker-end="url(#ar2)"/>
+  <line x1="760" y1="180" x2="800" y2="190" stroke="#222" stroke-width="1.4" marker-end="url(#ar2)"/>
+  <!-- post-processor -> internals area -->
+  <path d="M880,220 L880,260 L480,260 L480,280" fill="none" stroke="#222" stroke-width="1.4" marker-end="url(#ar2)"/>
+  <!-- internals chain -->
+  <line x1="340" y1="350" x2="360" y2="350" stroke="#222" stroke-width="1.2" marker-end="url(#ar2)"/>
+  <line x1="520" y1="350" x2="540" y2="350" stroke="#222" stroke-width="1.2" marker-end="url(#ar2)"/>
+  <line x1="340" y1="430" x2="360" y2="430" stroke="#222" stroke-width="1.2" marker-end="url(#ar2)"/>
+  <line x1="520" y1="430" x2="540" y2="430" stroke="#222" stroke-width="1.2" marker-end="url(#ar2)"/>
+  <path d="M620,380 L620,400" fill="none" stroke="#222" stroke-width="1.2" marker-end="url(#ar2)"/>
+  <path d="M260,380 L260,400" fill="none" stroke="#222" stroke-width="1.2" marker-end="url(#ar2)"/>
+</svg>

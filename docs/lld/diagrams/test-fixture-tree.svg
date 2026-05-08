@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 600" font-family="monospace" font-size="12">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#222"/>
+    </marker>
+    <style>
+      .root{fill:#dfe6f5; stroke:#224; stroke-width:1.4;}
+      .builder{fill:#eef; stroke:#224; stroke-width:1.2;}
+      .double{fill:#fff3d6; stroke:#a80; stroke-width:1.2;}
+      .fixture{fill:#e6f7e6; stroke:#262; stroke-width:1.2;}
+      .lbl{fill:#111;}
+      .small{font-size:11px; fill:#333;}
+      .ttl{font-size:14px; font-weight:bold;}
+    </style>
+  </defs>
+
+  <text x="20" y="22" class="ttl">Fixture / builder / double composition tree (test/support package)</text>
+
+  <!-- root -->
+  <rect x="380" y="50" width="220" height="50" rx="6" class="root"/>
+  <text x="392" y="72" class="lbl">test/support (helpers)</text>
+  <text x="392" y="90" class="small">imported by every *_test.go</text>
+
+  <!-- arrows down -->
+  <line x1="490" y1="100" x2="120" y2="150" stroke="#222" marker-end="url(#arr)"/>
+  <line x1="490" y1="100" x2="370" y2="150" stroke="#222" marker-end="url(#arr)"/>
+  <line x1="490" y1="100" x2="610" y2="150" stroke="#222" marker-end="url(#arr)"/>
+  <line x1="490" y1="100" x2="850" y2="150" stroke="#222" marker-end="url(#arr)"/>
+
+  <!-- col 1: Builders -->
+  <rect x="20" y="150" width="220" height="40" rx="6" class="builder"/>
+  <text x="32" y="174" class="lbl">Builders (fluent)</text>
+
+  <rect x="20" y="200" width="220" height="50" rx="4" class="builder"/>
+  <text x="32" y="218" class="lbl">ConfigBuilder</text>
+  <text x="32" y="234" class="small">.MinLevel().Encoder().Output()</text>
+  <text x="32" y="248" class="small">.AddSource().Build()</text>
+
+  <rect x="20" y="260" width="220" height="50" rx="4" class="builder"/>
+  <text x="32" y="278" class="lbl">EntryBuilder</text>
+  <text x="32" y="294" class="small">.WithFields(n).WithCtx().</text>
+  <text x="32" y="308" class="small">.WithErr().Build() ⇒ *LogEntry</text>
+
+  <rect x="20" y="320" width="220" height="50" rx="4" class="builder"/>
+  <text x="32" y="338" class="lbl">EventBuilder</text>
+  <text x="32" y="354" class="small">.Level().Body().Build()</text>
+  <text x="32" y="368" class="small">⇒ config.LogEvent</text>
+
+  <!-- col 2: Doubles -->
+  <rect x="270" y="150" width="200" height="40" rx="6" class="double"/>
+  <text x="282" y="174" class="lbl">Test Doubles</text>
+
+  <rect x="270" y="200" width="200" height="50" rx="4" class="double"/>
+  <text x="282" y="218" class="lbl">SpyHook</text>
+  <text x="282" y="234" class="small">records (level,msg) chan</text>
+  <text x="282" y="248" class="small">PublishLogMessage; Name</text>
+
+  <rect x="270" y="260" width="200" height="50" rx="4" class="double"/>
+  <text x="282" y="278" class="lbl">FakePostProcessor</text>
+  <text x="282" y="294" class="small">in-mem bucket, no IO</text>
+  <text x="282" y="308" class="small">PreProcess; Name</text>
+
+  <rect x="270" y="320" width="200" height="50" rx="4" class="double"/>
+  <text x="282" y="338" class="lbl">FakeWriter (io.Writer)</text>
+  <text x="282" y="354" class="small">mu+slice; Bytes(); Count()</text>
+  <text x="282" y="368" class="small">drop-in for os.Stdout</text>
+
+  <rect x="270" y="380" width="200" height="50" rx="4" class="double"/>
+  <text x="282" y="398" class="lbl">SlowHook</text>
+  <text x="282" y="414" class="small">block until release()</text>
+  <text x="282" y="428" class="small">drives R2 backpressure tests</text>
+
+  <!-- col 3: Fixtures -->
+  <rect x="500" y="150" width="220" height="40" rx="6" class="fixture"/>
+  <text x="512" y="174" class="lbl">Fixtures</text>
+
+  <rect x="500" y="200" width="220" height="50" rx="4" class="fixture"/>
+  <text x="512" y="218" class="lbl">testdata/golden/*.json</text>
+  <text x="512" y="234" class="small">JSON snapshots; -update flag</text>
+  <text x="512" y="248" class="small">SC1 SC4 evidence</text>
+
+  <rect x="500" y="260" width="220" height="50" rx="4" class="fixture"/>
+  <text x="512" y="278" class="lbl">jsonCorpus(1000)</text>
+  <text x="512" y="294" class="small">strings/ints/floats/unicode/</text>
+  <text x="512" y="308" class="small">embedded-quote/control bytes</text>
+
+  <rect x="500" y="320" width="220" height="50" rx="4" class="fixture"/>
+  <text x="512" y="338" class="lbl">recordingChan(buf)</text>
+  <text x="512" y="354" class="small">chan []byte capacity-N</text>
+  <text x="512" y="368" class="small">drives drain assertions (SC5)</text>
+
+  <!-- col 4: Stubs -->
+  <rect x="750" y="150" width="200" height="40" rx="6" class="double"/>
+  <text x="762" y="174" class="lbl">Stubs (callbacks)</text>
+
+  <rect x="750" y="200" width="200" height="50" rx="4" class="double"/>
+  <text x="762" y="218" class="lbl">StubContextParser</text>
+  <text x="762" y="234" class="small">func(ctx)map[string]any</text>
+  <text x="762" y="248" class="small">F16; returns fixed map</text>
+
+  <rect x="750" y="260" width="200" height="50" rx="4" class="double"/>
+  <text x="762" y="278" class="lbl">StubStaticParser</text>
+  <text x="762" y="294" class="small">func()map[string]any</text>
+  <text x="762" y="308" class="small">F15; one-shot eval</text>
+
+  <rect x="750" y="320" width="200" height="50" rx="4" class="double"/>
+  <text x="762" y="338" class="lbl">StubEncoder</text>
+  <text x="762" y="354" class="small">Append(dst,body) passthrough</text>
+  <text x="762" y="368" class="small">isolates pipeline tests</text>
+
+  <rect x="750" y="380" width="200" height="50" rx="4" class="double"/>
+  <text x="762" y="398" class="lbl">FakeClock</text>
+  <text x="762" y="414" class="small">customTime.TimeNow stub</text>
+  <text x="762" y="428" class="small">deterministic timestamps</text>
+
+  <!-- patterns legend -->
+  <rect x="20" y="500" width="940" height="80" rx="6" fill="#fafafa" stroke="#aaa"/>
+  <text x="32" y="520" class="lbl">Patterns:</text>
+  <text x="32" y="538" class="small">Builder = Config/Entry/Event composition. Spy = SpyHook records calls. Fake = FakePostProcessor / FakeWriter (working impl, no IO).</text>
+  <text x="32" y="554" class="small">Stub = parsers / encoders return canned data. Fixture = testdata/golden + corpus. SlowHook = controllable latency for backpressure (R2).</text>
+  <text x="32" y="570" class="small">Composition: ConfigBuilder.WithEncoder(StubEncoder).Build() + EntryBuilder.WithCtx(StubContextParser).Build() + RegisterHook(SpyHook).</text>
+</svg>

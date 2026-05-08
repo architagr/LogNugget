@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 520" font-family="monospace" font-size="12">
+  <defs>
+    <style>
+      .unit{fill:#e8f0ff; stroke:#224; stroke-width:1.2;}
+      .race{fill:#fff3d6; stroke:#a80; stroke-width:1.2;}
+      .integ{fill:#e6f7e6; stroke:#262; stroke-width:1.2;}
+      .bench{fill:#ffe2e2; stroke:#822; stroke-width:1.4;}
+      .prop{fill:#f0e6ff; stroke:#624; stroke-width:1.2;}
+      .lbl{fill:#111;}
+      .small{font-size:11px; fill:#333;}
+      .ttl{font-size:14px; font-weight:bold;}
+      .raceOv{fill:none; stroke:#a80; stroke-width:1.4; stroke-dasharray:5 3;}
+    </style>
+  </defs>
+
+  <text x="20" y="22" class="ttl">LogNugget test pyramid: layer counts, latency, gate</text>
+
+  <!-- base: unit -->
+  <polygon points="60,440 820,440 720,360 160,360" class="unit"/>
+  <text x="380" y="395" class="lbl">UNIT (table-driven, fast)</text>
+  <text x="380" y="412" class="small">~ 60 tests | per-pkg | &lt; 50 ms each | line cov ≥ 85%</text>
+  <text x="380" y="428" class="small">entry / config / encoder / pipeline_stage / custom_time / lognugget</text>
+
+  <!-- race overlay (dashed band over unit + integration) -->
+  <rect x="60" y="260" width="760" height="180" class="raceOv"/>
+  <text x="660" y="278" class="small" fill="#a80">go test -race overlay (mandatory)</text>
+
+  <!-- integration -->
+  <polygon points="160,360 720,360 640,280 240,280" class="integ"/>
+  <text x="400" y="312" class="lbl">INTEGRATION (full pipeline)</text>
+  <text x="400" y="328" class="small">~ 8 tests | caller→channel→hook→writer | ≤ 200 ms each</text>
+  <text x="400" y="346" class="small">SC1 SC5 SC7 SC8 zero-config drain collision fan-out</text>
+
+  <!-- property -->
+  <polygon points="240,280 640,280 580,220 300,220" class="prop"/>
+  <text x="440" y="244" class="lbl">PROPERTY / FUZZ</text>
+  <text x="440" y="262" class="small">JSON encoder F10 round-trip | testing.F | corpus 1000+</text>
+
+  <!-- bench -->
+  <polygon points="300,220 580,220 520,150 360,150" class="bench"/>
+  <text x="440" y="180" class="lbl">BENCH (gate)</text>
+  <text x="440" y="200" class="small">5 benches | -count=10 | bench-check.sh | NF1 NF3 NF6</text>
+
+  <!-- top: gate result -->
+  <polygon points="360,150 520,150 480,100 400,100" class="bench"/>
+  <text x="440" y="125" class="lbl" text-anchor="middle">CI gate</text>
+  <text x="440" y="142" class="small" text-anchor="middle">&lt; 1000 ns/op</text>
+
+  <!-- legend -->
+  <rect x="20" y="460" width="14" height="14" class="unit"/>
+  <text x="40" y="472" class="small">unit</text>
+  <rect x="100" y="460" width="14" height="14" class="integ"/>
+  <text x="120" y="472" class="small">integration</text>
+  <rect x="220" y="460" width="14" height="14" class="prop"/>
+  <text x="240" y="472" class="small">property/fuzz</text>
+  <rect x="350" y="460" width="14" height="14" class="bench"/>
+  <text x="370" y="472" class="small">bench</text>
+  <rect x="430" y="460" width="14" height="14" fill="none" stroke="#a80" stroke-dasharray="4 2"/>
+  <text x="450" y="472" class="small">-race overlay</text>
+
+  <text x="20" y="500" class="small">Pattern: Test Pyramid. Bench is narrow but blocking; race overlay applies to unit+integration; property is fuzz-only.</text>
+</svg>

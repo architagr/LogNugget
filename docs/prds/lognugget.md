@@ -1,5 +1,7 @@
 # LogNugget — Product Requirements Document (v1)
 
+EM-APPROVED: 2026-05-08 — LLD + test framework + defect register reviewed; coverage complete, SLO arithmetic plausible (30 ns headroom on addSource=on flagged), 3-of-13 D-defects spot-checked against source and confirmed real. Phase 2 unblocked.
+
 Status: Final, ready for Architect hand-off.
 Owner: Delivery Manager.
 Source Wiki: `/Users/architagarwal/code/LogNugget/docs/wiki/lognugget.md` (final, zero open questions).

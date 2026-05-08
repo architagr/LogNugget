@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 540" font-family="monospace" font-size="12">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#222"/>
+    </marker>
+    <style>
+      .step{fill:#eef; stroke:#224; stroke-width:1.2;}
+      .gate{fill:#ffe; stroke:#a80; stroke-width:1.4;}
+      .pass{fill:#e6f7e6; stroke:#262; stroke-width:1.2;}
+      .fail{fill:#ffd6d6; stroke:#822; stroke-width:1.4;}
+      .lbl{fill:#111;}
+      .small{font-size:11px; fill:#333;}
+      .ttl{font-size:14px; font-weight:bold;}
+    </style>
+  </defs>
+
+  <text x="20" y="22" class="ttl">bench-check.sh: collect → benchstat → threshold → baseline diff → exit</text>
+
+  <!-- step 1 collect -->
+  <rect x="20" y="60" width="200" height="80" rx="6" class="step"/>
+  <text x="32" y="80" class="lbl">1. collect</text>
+  <text x="32" y="98" class="small">go test -bench=. -benchmem</text>
+  <text x="32" y="114" class="small">-count=10 -run=^$ ./...</text>
+  <text x="32" y="130" class="small">→ new.txt</text>
+
+  <line x1="220" y1="100" x2="260" y2="100" stroke="#222" stroke-width="1.2" marker-end="url(#arr)"/>
+
+  <!-- step 2 benchstat -->
+  <rect x="260" y="60" width="200" height="80" rx="6" class="step"/>
+  <text x="272" y="80" class="lbl">2. benchstat</text>
+  <text x="272" y="98" class="small">benchstat baseline.txt new.txt</text>
+  <text x="272" y="114" class="small">→ delta table (mean, p)</text>
+  <text x="272" y="130" class="small">stat-significance @ p&lt;.05</text>
+
+  <line x1="460" y1="100" x2="500" y2="100" stroke="#222" stroke-width="1.2" marker-end="url(#arr)"/>
+
+  <!-- step 3 threshold check -->
+  <rect x="500" y="60" width="220" height="80" rx="6" class="gate"/>
+  <text x="512" y="80" class="lbl">3. threshold check</text>
+  <text x="512" y="98" class="small">mean ns/op &lt; 1,000 (NF1)</text>
+  <text x="512" y="114" class="small">allocs/op ≤ 30 (NF3)</text>
+  <text x="512" y="130" class="small">bytes/op ≤ 2,048 (NF3)</text>
+
+  <line x1="720" y1="100" x2="760" y2="100" stroke="#222" stroke-width="1.2" marker-end="url(#arr)"/>
+
+  <!-- step 4 baseline diff -->
+  <rect x="760" y="60" width="200" height="80" rx="6" class="gate"/>
+  <text x="772" y="80" class="lbl">4. baseline diff</text>
+  <text x="772" y="98" class="small">benchstat ⇒ regression?</text>
+  <text x="772" y="114" class="small">stat-significant slower</text>
+  <text x="772" y="130" class="small">vs bench-baseline.txt</text>
+
+  <!-- decision branches -->
+  <line x1="860" y1="140" x2="860" y2="200" stroke="#222" stroke-width="1.2"/>
+  <line x1="860" y1="200" x2="320" y2="200" stroke="#222" stroke-width="1.2"/>
+  <line x1="320" y1="200" x2="320" y2="240" stroke="#222" stroke-width="1.2" marker-end="url(#arr)"/>
+  <line x1="860" y1="200" x2="860" y2="240" stroke="#222" stroke-width="1.2" marker-end="url(#arr)"/>
+
+  <!-- pass -->
+  <rect x="220" y="240" width="200" height="80" rx="6" class="pass"/>
+  <text x="232" y="262" class="lbl">PASS</text>
+  <text x="232" y="280" class="small">all checks green</text>
+  <text x="232" y="296" class="small">exit 0</text>
+  <text x="232" y="312" class="small">PR mergeable (NF6)</text>
+
+  <!-- fail -->
+  <rect x="760" y="240" width="200" height="80" rx="6" class="fail"/>
+  <text x="772" y="262" class="lbl">FAIL</text>
+  <text x="772" y="280" class="small">any check red</text>
+  <text x="772" y="296" class="small">exit 1</text>
+  <text x="772" y="312" class="small">block merge; no waiver</text>
+
+  <!-- closing-the-gap path -->
+  <rect x="220" y="360" width="740" height="100" rx="6" class="step"/>
+  <text x="232" y="380" class="lbl">Closing performance gaps (CLAUDE.md):</text>
+  <text x="232" y="398" class="small">1. Optimize: algorithmic / alloc reduction / strconv-Append over fmt.Sprintf</text>
+  <text x="232" y="414" class="small">2. Cache: in-mem LRU / sync.Pool / pre-rendered key prefixes (LLD §6.5)</text>
+  <text x="232" y="430" class="small">3. Reduce work: move async, batch, precompute (post-processor double-buffer)</text>
+  <text x="232" y="446" class="small">Bypass (skip bench, raise threshold, mark Ready over red gate) is NOT permitted.</text>
+
+  <!-- baseline maintenance -->
+  <rect x="20" y="360" width="180" height="100" rx="6" class="step"/>
+  <text x="32" y="380" class="lbl">baseline maint.</text>
+  <text x="32" y="398" class="small">--update-baseline</text>
+  <text x="32" y="414" class="small">Project Lead only</text>
+  <text x="32" y="430" class="small">commit refs PR #</text>
+  <text x="32" y="446" class="small">never re-tag releases</text>
+
+  <text x="20" y="500" class="small">Pattern: Test Harness + Golden-baseline. Source of truth: ./.claude/scripts/bench-check.sh.</text>
+</svg>

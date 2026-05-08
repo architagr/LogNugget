@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 720" font-family="monospace" font-size="11">
+  <defs>
+    <style>
+      .hdr{fill:#dfe6f5; stroke:#224; stroke-width:1.0;}
+      .row{fill:#fff; stroke:#888; stroke-width:0.6;}
+      .alt{fill:#f4f6fb; stroke:#888; stroke-width:0.6;}
+      .sc{fill:#ffe; stroke:#a80; stroke-width:1.0;}
+      .lbl{fill:#111;}
+      .small{font-size:10px; fill:#333;}
+      .ttl{font-size:14px; font-weight:bold;}
+      .b{font-weight:bold;}
+    </style>
+  </defs>
+
+  <text x="20" y="22" class="ttl">Coverage map: F-ID / SC-ID → test file → test function</text>
+
+  <!-- header row -->
+  <rect x="20" y="40" width="100" height="26" class="hdr"/>
+  <text x="28" y="58" class="b">F/SC</text>
+  <rect x="120" y="40" width="280" height="26" class="hdr"/>
+  <text x="128" y="58" class="b">test file</text>
+  <rect x="400" y="40" width="380" height="26" class="hdr"/>
+  <text x="408" y="58" class="b">test function</text>
+  <rect x="780" y="40" width="300" height="26" class="hdr"/>
+  <text x="788" y="58" class="b">fixture / double used</text>
+
+  <!-- rows: 28 -->
+  <!-- F2 -->
+  <rect x="20" y="66" width="100" height="22" class="row"/><text x="28" y="82" class="lbl">F2</text>
+  <rect x="120" y="66" width="280" height="22" class="row"/><text x="128" y="82" class="small">entry/levels_test.go</text>
+  <rect x="400" y="66" width="380" height="22" class="row"/><text x="408" y="82" class="small">Test_LogEntry_LevelMethods/Debug,Info,Warn,Error,Fatal,Panic</text>
+  <rect x="780" y="66" width="300" height="22" class="row"/><text x="788" y="82" class="small">EntryBuilder + SpyHook</text>
+
+  <!-- F3 -->
+  <rect x="20" y="88" width="100" height="22" class="alt"/><text x="28" y="104" class="lbl">F3</text>
+  <rect x="120" y="88" width="280" height="22" class="alt"/><text x="128" y="104" class="small">entry/pool_test.go</text>
+  <rect x="400" y="88" width="380" height="22" class="alt"/><text x="408" y="104" class="small">Test_NewLogEntry_ReturnsResetEntry</text>
+  <rect x="780" y="88" width="300" height="22" class="alt"/><text x="788" y="104" class="small">none (direct)</text>
+
+  <!-- F4 -->
+  <rect x="20" y="110" width="100" height="22" class="row"/><text x="28" y="126" class="lbl">F4</text>
+  <rect x="120" y="110" width="280" height="22" class="row"/><text x="128" y="126" class="small">entry/pool_test.go</text>
+  <rect x="400" y="110" width="380" height="22" class="row"/><text x="408" y="126" class="small">Test_GenerateInitialPool_PrePopulatesN</text>
+  <rect x="780" y="110" width="300" height="22" class="row"/><text x="788" y="126" class="small">none</text>
+
+  <!-- F6 -->
+  <rect x="20" y="132" width="100" height="22" class="alt"/><text x="28" y="148" class="lbl">F6</text>
+  <rect x="120" y="132" width="280" height="22" class="alt"/><text x="128" y="148" class="small">entry/level_gate_test.go</text>
+  <rect x="400" y="132" width="380" height="22" class="alt"/><text x="408" y="148" class="small">Test_LogEntry_MinLevelGate (table)</text>
+  <rect x="780" y="132" width="300" height="22" class="alt"/><text x="788" y="148" class="small">ConfigBuilder + SpyHook</text>
+
+  <!-- F10 / SC4 -->
+  <rect x="20" y="154" width="100" height="22" class="sc"/><text x="28" y="170" class="lbl">F10/SC4</text>
+  <rect x="120" y="154" width="280" height="22" class="row"/><text x="128" y="170" class="small">encoder/json_encoder_test.go + fuzz</text>
+  <rect x="400" y="154" width="380" height="22" class="row"/><text x="408" y="170" class="small">Test_JSONEncoder_RFC8259_Roundtrip / FuzzJSONEncoder</text>
+  <rect x="780" y="154" width="300" height="22" class="row"/><text x="788" y="170" class="small">jsonCorpus(1000) + golden/*</text>
+
+  <!-- F12/F13 -->
+  <rect x="20" y="176" width="100" height="22" class="alt"/><text x="28" y="192" class="lbl">F12 F13</text>
+  <rect x="120" y="176" width="280" height="22" class="alt"/><text x="128" y="192" class="small">config/default_fields_test.go</text>
+  <rect x="400" y="176" width="380" height="22" class="alt"/><text x="408" y="192" class="small">Test_SetDefaultFields_RenamesAndPrerenders</text>
+  <rect x="780" y="176" width="300" height="22" class="alt"/><text x="788" y="192" class="small">ConfigBuilder</text>
+
+  <!-- F14 / SC7 -->
+  <rect x="20" y="198" width="100" height="22" class="sc"/><text x="28" y="214" class="lbl">F14/SC7</text>
+  <rect x="120" y="198" width="280" height="22" class="row"/><text x="128" y="214" class="small">config/collision_test.go</text>
+  <rect x="400" y="198" width="380" height="22" class="row"/><text x="408" y="214" class="small">Test_ValidateAndParse_PrefixesCollidingKey (table)</text>
+  <rect x="780" y="198" width="300" height="22" class="row"/><text x="788" y="214" class="small">ConfigBuilder</text>
+
+  <!-- F15 -->
+  <rect x="20" y="220" width="100" height="22" class="alt"/><text x="28" y="236" class="lbl">F15</text>
+  <rect x="120" y="220" width="280" height="22" class="alt"/><text x="128" y="236" class="small">config/static_parser_test.go</text>
+  <rect x="400" y="220" width="380" height="22" class="alt"/><text x="408" y="236" class="small">Test_StaticEnvParser_EvaluatesOnce</text>
+  <rect x="780" y="220" width="300" height="22" class="alt"/><text x="788" y="236" class="small">StubStaticParser</text>
+
+  <!-- F16 -->
+  <rect x="20" y="242" width="100" height="22" class="row"/><text x="28" y="258" class="lbl">F16</text>
+  <rect x="120" y="242" width="280" height="22" class="row"/><text x="128" y="258" class="small">config/context_parser_test.go</text>
+  <rect x="400" y="242" width="380" height="22" class="row"/><text x="408" y="258" class="small">Test_ContextParser_InvokedPerCall</text>
+  <rect x="780" y="242" width="300" height="22" class="row"/><text x="788" y="258" class="small">StubContextParser + EntryBuilder</text>
+
+  <!-- F17 / SC3 -->
+  <rect x="20" y="264" width="100" height="22" class="sc"/><text x="28" y="280" class="lbl">F17/SC3</text>
+  <rect x="120" y="264" width="280" height="22" class="row"/><text x="128" y="280" class="small">entry/source_capture_test.go</text>
+  <rect x="400" y="264" width="380" height="22" class="row"/><text x="408" y="280" class="small">Test_LogEntry_CallerCapture_WhenAddSource</text>
+  <rect x="780" y="264" width="300" height="22" class="row"/><text x="788" y="280" class="small">ConfigBuilder.AddSource(true)</text>
+
+  <!-- F18 F19 / SC8 -->
+  <rect x="20" y="286" width="100" height="22" class="sc"/><text x="28" y="302" class="lbl">F18 F19/SC8</text>
+  <rect x="120" y="286" width="280" height="22" class="alt"/><text x="128" y="302" class="small">pipeline_stage/pre_processing_stage_test.go</text>
+  <rect x="400" y="286" width="380" height="22" class="alt"/><text x="408" y="302" class="small">Test_PreProcess_UnsetGetsAll / LevelOnly / DeRegister</text>
+  <rect x="780" y="286" width="300" height="22" class="alt"/><text x="788" y="302" class="small">SpyHook (×2)</text>
+
+  <!-- F20 -->
+  <rect x="20" y="308" width="100" height="22" class="row"/><text x="28" y="324" class="lbl">F20</text>
+  <rect x="120" y="308" width="280" height="22" class="row"/><text x="128" y="324" class="small">pipeline_stage/unset_log_post_processor_hook_test.go</text>
+  <rect x="400" y="308" width="380" height="22" class="row"/><text x="408" y="324" class="small">Test_UnsetPostProcessor_BatchedFlush (table: size, ticker, idle)</text>
+  <rect x="780" y="308" width="300" height="22" class="row"/><text x="788" y="324" class="small">FakeWriter</text>
+
+  <!-- F21 F22 F23 -->
+  <rect x="20" y="330" width="100" height="22" class="alt"/><text x="28" y="346" class="lbl">F21 F22 F23</text>
+  <rect x="120" y="330" width="280" height="22" class="alt"/><text x="128" y="346" class="small">test/integration/pipeline_test.go</text>
+  <rect x="400" y="330" width="380" height="22" class="alt"/><text x="408" y="346" class="small">Test_Integration_ChannelBuffersAndBlocks</text>
+  <rect x="780" y="330" width="300" height="22" class="alt"/><text x="788" y="346" class="small">SlowHook + recordingChan</text>
+
+  <!-- F24 -->
+  <rect x="20" y="352" width="100" height="22" class="row"/><text x="28" y="368" class="lbl">F24</text>
+  <rect x="120" y="352" width="280" height="22" class="row"/><text x="128" y="368" class="small">pipeline_stage/flush_test.go</text>
+  <rect x="400" y="352" width="380" height="22" class="row"/><text x="408" y="368" class="small">Test_PostProcessor_FlushOnSize / FlushOnTicker / IdleNoFlush</text>
+  <rect x="780" y="352" width="300" height="22" class="row"/><text x="788" y="368" class="small">FakeWriter</text>
+
+  <!-- F25 F26 -->
+  <rect x="20" y="374" width="100" height="22" class="alt"/><text x="28" y="390" class="lbl">F25 F26</text>
+  <rect x="120" y="374" width="280" height="22" class="alt"/><text x="128" y="390" class="small">entry/reset_test.go</text>
+  <rect x="400" y="374" width="380" height="22" class="alt"/><text x="408" y="390" class="small">Test_LogEntry_ResetExhaustive (reflect every field)</text>
+  <rect x="780" y="374" width="300" height="22" class="alt"/><text x="788" y="390" class="small">none (reflect)</text>
+
+  <!-- F27 -->
+  <rect x="20" y="396" width="100" height="22" class="row"/><text x="28" y="412" class="lbl">F27</text>
+  <rect x="120" y="396" width="280" height="22" class="row"/><text x="128" y="412" class="small">config/append_field_test.go</text>
+  <rect x="400" y="396" width="380" height="22" class="row"/><text x="408" y="412" class="small">Test_AppendField_NoAlloc (testing.AllocsPerRun)</text>
+  <rect x="780" y="396" width="300" height="22" class="row"/><text x="788" y="412" class="small">none</text>
+
+  <!-- F28 -->
+  <rect x="20" y="418" width="100" height="22" class="alt"/><text x="28" y="434" class="lbl">F28</text>
+  <rect x="120" y="418" width="280" height="22" class="alt"/><text x="128" y="434" class="small">custom_time/time_test.go</text>
+  <rect x="400" y="418" width="380" height="22" class="alt"/><text x="408" y="434" class="small">Test_TimeNow_UTC / Test_AppendFormat_NoAlloc</text>
+  <rect x="780" y="418" width="300" height="22" class="alt"/><text x="788" y="434" class="small">none</text>
+
+  <!-- F30 / SC5 -->
+  <rect x="20" y="440" width="100" height="22" class="sc"/><text x="28" y="456" class="lbl">F30/SC5</text>
+  <rect x="120" y="440" width="280" height="22" class="row"/><text x="128" y="456" class="small">test/integration/stop_drain_test.go</text>
+  <rect x="400" y="440" width="380" height="22" class="row"/><text x="408" y="456" class="small">Test_Integration_StopDrainsAllQueued (2× maxBufferSize)</text>
+  <rect x="780" y="440" width="300" height="22" class="row"/><text x="788" y="456" class="small">FakeWriter + recordingChan</text>
+
+  <!-- F31 / SC1 -->
+  <rect x="20" y="462" width="100" height="22" class="sc"/><text x="28" y="478" class="lbl">F31/SC1</text>
+  <rect x="120" y="462" width="280" height="22" class="alt"/><text x="128" y="478" class="small">lognugget/zero_config_test.go</text>
+  <rect x="400" y="462" width="380" height="22" class="alt"/><text x="408" y="478" class="small">Test_ZeroConfig_EmitsJSONLineOnStdout / ShutdownIdempotent</text>
+  <rect x="780" y="462" width="300" height="22" class="alt"/><text x="788" y="478" class="small">FakeWriter (Stdout swap)</text>
+
+  <!-- SC2 -->
+  <rect x="20" y="484" width="100" height="22" class="sc"/><text x="28" y="500" class="lbl">SC2</text>
+  <rect x="120" y="484" width="280" height="22" class="row"/><text x="128" y="500" class="small">test/benchmark/entry_benchmark_test.go</text>
+  <rect x="400" y="484" width="380" height="22" class="row"/><text x="408" y="500" class="small">Benchmark_Log / _LogParallel / _LogFiltered / _AddSourceTrue</text>
+  <rect x="780" y="484" width="300" height="22" class="row"/><text x="788" y="500" class="small">bench-baseline.txt</text>
+
+  <!-- SC6 -->
+  <rect x="20" y="506" width="100" height="22" class="sc"/><text x="28" y="522" class="lbl">SC6</text>
+  <rect x="120" y="506" width="280" height="22" class="alt"/><text x="128" y="522" class="small">CI pipeline (.github/workflows)</text>
+  <rect x="400" y="506" width="380" height="22" class="alt"/><text x="408" y="522" class="small">go test ./... | go test -race ./... | golangci-lint run</text>
+  <rect x="780" y="506" width="300" height="22" class="alt"/><text x="788" y="522" class="small">CI gate</text>
+
+  <!-- NF1 NF3 -->
+  <rect x="20" y="528" width="100" height="22" class="row"/><text x="28" y="544" class="lbl">NF1 NF3</text>
+  <rect x="120" y="528" width="280" height="22" class="row"/><text x="128" y="544" class="small">test/benchmark/* + bench-check.sh</text>
+  <rect x="400" y="528" width="380" height="22" class="row"/><text x="408" y="544" class="small">all benches; thresholds enforced by script</text>
+  <rect x="780" y="528" width="300" height="22" class="row"/><text x="788" y="544" class="small">benchstat baseline</text>
+
+  <!-- NF7 NF8 NF9 -->
+  <rect x="20" y="550" width="100" height="22" class="alt"/><text x="28" y="566" class="lbl">NF7 NF8 NF9</text>
+  <rect x="120" y="550" width="280" height="22" class="alt"/><text x="128" y="566" class="small">test/race/concurrency_test.go</text>
+  <rect x="400" y="550" width="380" height="22" class="alt"/><text x="408" y="566" class="small">Test_Race_HookRegisterUnderLog / Test_Race_PostProcessorPublish</text>
+  <rect x="780" y="550" width="300" height="22" class="alt"/><text x="788" y="566" class="small">SpyHook ×100 goroutines</text>
+
+  <!-- legend -->
+  <rect x="20" y="595" width="1060" height="115" rx="6" fill="#fafafa" stroke="#aaa"/>
+  <text x="32" y="615" class="lbl">Legend:</text>
+  <text x="32" y="632" class="small">yellow row = SC-bearing (acceptance criterion test). white/light-grey = supporting unit/integration.</text>
+  <text x="32" y="648" class="small">Each row maps F/SC-id → test file path → test function name → fixture/double consumed.</text>
+  <text x="32" y="664" class="small">Patterns in use: Table-driven (gates, parsers, factory), Spy (hooks), Fake (writer/post-proc), Stub (parsers/encoder),</text>
+  <text x="32" y="680" class="small">Property/Fuzz (encoder), Golden Master (JSON), Test Harness (bench), Subtests (t.Run per case).</text>
+  <text x="32" y="696" class="small">Story-cuttable: every row = 1 task-slicer story (one file, ≤ 300 LOC, single F/SC).</text>
+</svg>

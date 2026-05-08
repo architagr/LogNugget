@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 540" font-family="monospace" font-size="12">
+  <defs>
+    <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#222"/>
+    </marker>
+    <style>
+      .init{fill:#efe; stroke:#272; stroke-width:1.2;}
+      .steady{fill:#eef; stroke:#225; stroke-width:1.2;}
+      .stop{fill:#fee; stroke:#a22; stroke-width:1.2;}
+      .term{fill:#eee; stroke:#444; stroke-width:1.2;}
+      .ttl{font-size:14px; font-weight:bold;}
+    </style>
+  </defs>
+
+  <text x="20" y="22" class="ttl">Lifecycle: init -&gt; steady-state -&gt; Stop drain</text>
+
+  <!-- Init phase -->
+  <rect x="20" y="50" width="940" height="170" rx="6" fill="#fafafa" stroke="#888"/>
+  <text x="30" y="72" class="ttl">PHASE 1: init (sync.Once, package init())</text>
+
+  <rect x="40" y="90" width="170" height="60" rx="6" class="init"/>
+  <text x="50" y="110">config.init()</text>
+  <text x="50" y="128">build defaultConfig</text>
+  <text x="50" y="144">make(chan,10) F22</text>
+
+  <rect x="230" y="90" width="170" height="60" rx="6" class="init"/>
+  <text x="240" y="110">entry.init()</text>
+  <text x="240" y="128">sync.Pool New=initEntry</text>
+  <text x="240" y="144">F25</text>
+
+  <rect x="420" y="90" width="170" height="60" rx="6" class="init"/>
+  <text x="430" y="110">pipelineStage.init()</text>
+  <text x="430" y="128">sync.Once -&gt;</text>
+  <text x="430" y="144">EventPreProcessorObj</text>
+
+  <rect x="610" y="90" width="170" height="60" rx="6" class="init"/>
+  <text x="620" y="110">lognugget.init() (NEW)</text>
+  <text x="620" y="128">defaultPostProc</text>
+  <text x="620" y="144">register on LevelUnSet F20</text>
+
+  <rect x="800" y="90" width="160" height="60" rx="6" class="init"/>
+  <text x="810" y="110">go ProcessLogEvent</text>
+  <text x="810" y="128">dispatcher started</text>
+  <text x="810" y="144">F21, NF8</text>
+
+  <rect x="40" y="160" width="940" height="50" rx="6" class="init"/>
+  <text x="50" y="180">consumer optional: SetMinLevel/SetEncoderType/SetOutput/SetTimeFormat/SetAddSource/SetStaticEnvFieldsParser/</text>
+  <text x="50" y="198">SetContextFieldsParser/SetDefaultFields/GenerateInitialPool — STARTUP-ONLY (NF7)</text>
+
+  <!-- Steady state -->
+  <rect x="20" y="240" width="940" height="120" rx="6" fill="#fafafa" stroke="#888"/>
+  <text x="30" y="262" class="ttl">PHASE 2: steady-state</text>
+
+  <rect x="40" y="280" width="200" height="60" rx="6" class="steady"/>
+  <text x="50" y="300">callers emit (hot path)</text>
+  <text x="50" y="318">entry.NewLogEntry().Info</text>
+  <text x="50" y="334">&lt; 1 µs p99 NF1</text>
+
+  <rect x="260" y="280" width="200" height="60" rx="6" class="steady"/>
+  <text x="270" y="300">dispatcher drains ch</text>
+  <text x="270" y="318">fan out to hooks</text>
+
+  <rect x="480" y="280" width="200" height="60" rx="6" class="steady"/>
+  <text x="490" y="300">postProc batches</text>
+  <text x="490" y="318">activeBucket size/ticker</text>
+  <text x="490" y="334">flush goroutine writes</text>
+
+  <rect x="700" y="280" width="240" height="60" rx="6" class="steady"/>
+  <text x="710" y="300">io.Writer receives []byte</text>
+  <text x="710" y="318">errors silently dropped</text>
+  <text x="710" y="334">(NF10, Wiki §7.6)</text>
+
+  <!-- Stop -->
+  <rect x="20" y="380" width="940" height="140" rx="6" fill="#fafafa" stroke="#888"/>
+  <text x="30" y="402" class="ttl">PHASE 3: Stop() drain (F30, F31)</text>
+
+  <rect x="40" y="420" width="160" height="60" rx="6" class="stop"/>
+  <text x="50" y="440">consumer triggers</text>
+  <text x="50" y="458">lognugget.Shutdown()</text>
+  <text x="50" y="474">or postProc.Stop()</text>
+
+  <rect x="220" y="420" width="160" height="60" rx="6" class="stop"/>
+  <text x="230" y="440">close(stopCh)</text>
+  <text x="230" y="458">watcher selects</text>
+  <text x="230" y="474">stopCh branch</text>
+
+  <rect x="400" y="420" width="160" height="60" rx="6" class="stop"/>
+  <text x="410" y="440">final flushLogMessages</text>
+  <text x="410" y="458">drain activeBucket</text>
+  <text x="410" y="474">until len==0 (SC5)</text>
+
+  <rect x="580" y="420" width="160" height="60" rx="6" class="stop"/>
+  <text x="590" y="440">ticker.Stop()</text>
+  <text x="590" y="458">watcher returns</text>
+
+  <rect x="760" y="420" width="200" height="60" rx="6" class="term"/>
+  <text x="770" y="440">terminated; ch may still</text>
+  <text x="770" y="458">have inflight if caller</text>
+  <text x="770" y="474">post-Stop logs (UB)</text>
+
+  <line x1="210" y1="120" x2="230" y2="120" stroke="#222" stroke-width="1.2" marker-end="url(#ar3)"/>
+  <line x1="400" y1="120" x2="420" y2="120" stroke="#222" stroke-width="1.2" marker-end="url(#ar3)"/>
+  <line x1="590" y1="120" x2="610" y2="120" stroke="#222" stroke-width="1.2" marker-end="url(#ar3)"/>
+  <line x1="780" y1="120" x2="800" y2="120" stroke="#222" stroke-width="1.2" marker-end="url(#ar3)"/>
+  <line x1="240" y1="310" x2="260" y2="310" stroke="#222" stroke-width="1.2" marker-end="url(#ar3)"/>
+  <line x1="460" y1="310" x2="480" y2="310" stroke="#222" stroke-width="1.2" marker-end="url(#ar3)"/>
+  <line x1="680" y1="310" x2="700" y2="310" stroke="#222" stroke-width="1.2" marker-end="url(#ar3)"/>
+  <line x1="200" y1="450" x2="220" y2="450" stroke="#222" stroke-width="1.2" marker-end="url(#ar3)"/>
+  <line x1="380" y1="450" x2="400" y2="450" stroke="#222" stroke-width="1.2" marker-end="url(#ar3)"/>
+  <line x1="560" y1="450" x2="580" y2="450" stroke="#222" stroke-width="1.2" marker-end="url(#ar3)"/>
+  <line x1="740" y1="450" x2="760" y2="450" stroke="#222" stroke-width="1.2" marker-end="url(#ar3)"/>
+</svg>
