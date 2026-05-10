@@ -36,8 +36,8 @@ func Test_TestResetConfig_RestoresDefaults(t *testing.T) {
 	if got := config.GetConfig().EncoderType(); got != config.DafaultEncoderType {
 		t.Errorf("EncoderType after TestResetConfig = %v, want %v", got, config.DafaultEncoderType)
 	}
-	if got := config.GetConfig().AddSource(); got != config.DafaultAddSource {
-		t.Errorf("AddSource after TestResetConfig = %v, want %v", got, config.DafaultAddSource)
+	if got := config.GetConfig().AddSource(); got != config.DefaultAddSource {
+		t.Errorf("AddSource after TestResetConfig = %v, want %v", got, config.DefaultAddSource)
 	}
 }
 

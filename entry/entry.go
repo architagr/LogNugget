@@ -81,11 +81,20 @@ func (e *LogEntry) Put() {
 
 // Log assembles the structured log line from level, ctx, message, err, and
 // any extra fields, encodes it, and dispatches it through config.PublishLog.
-// It returns immediately if level is below the configured minimum or if no
-// pre-processors are registered. The entry is returned to the pool before
-// Log returns.
+// It returns immediately if level is below the configured minimum (level gate
+// runs first — before any allocation) or if no pre-processors are registered.
+// The entry is returned to the pool before Log returns in all code paths,
+// including the early-return filtered path, to prevent pool depletion.
 func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string, err error, fields ...model.LogAttr) {
-	if config.GetConfig().MinLevel() > level || config.EventPreProcessors == nil {
+	// why: level gate runs BEFORE EventPreProcessors check and before any
+	// allocation (make, strings.Join, encoder.Write). A filtered call must
+	// spend zero heap allocations. D-13 / TS-05.
+	if config.GetConfig().MinLevel() > level {
+		e.Put()
+		return
+	}
+	if config.EventPreProcessors == nil {
+		e.Put()
 		return
 	}
 

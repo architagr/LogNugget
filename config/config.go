@@ -27,11 +27,15 @@ import (
 var (
 	DafaultLevel       enum.LogLevel      = enum.LevelInfo   // Default log level
 	DafaultEncoderType enum.LogEncodeType = enum.EncoderJSON // Default encoder type
-	DafaultAddSource   bool               = true             // Default to add source information
-	DefaultOutput      io.Writer          = os.Stdout        // Default output writer
-	DefaultTimeFormat  string             = time.RFC3339     // Default time format for log entries
-	DafaultLogBuffer   int                = 20               // Default buffer size for logs
-	DefaultPrefix      string             = "custom."
+	// DefaultAddSource is the package default for whether source file/line
+	// information is appended to every log entry. It is false by design so
+	// that zero-config deployments do not pay the runtime.Callers overhead
+	// (D-7). Callers may opt in explicitly via config.SetAddSource(true).
+	DefaultAddSource  bool      = false
+	DefaultOutput     io.Writer = os.Stdout  // Default output writer
+	DefaultTimeFormat string    = time.RFC3339 // Default time format for log entries
+	DafaultLogBuffer  int       = 20          // Default buffer size for logs
+	DefaultPrefix     string    = "custom."
 )
 
 type PublishLogMessageHookContract interface {
@@ -416,7 +420,7 @@ func resetConfig() {
 		minLevel:           DafaultLevel,
 		encoderType:        DafaultEncoderType,
 		encoderObj:         encoderObj,
-		addSource:          DafaultAddSource,
+		addSource:          DefaultAddSource,
 		output:             DefaultOutput,
 		logBufferMaxSize:   DafaultLogBuffer, // Default buffer size
 		rate:               1 * time.Second,  // Default rate is 1 sec
