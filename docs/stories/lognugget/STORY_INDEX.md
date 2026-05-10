@@ -23,10 +23,10 @@ PENDING / TESTS_DRAFTED / TESTS_APPROVED / IMPL_IN_PROGRESS / DRAFT_PR / READY /
 | 008 | #20 | Fix D-17 JSONEncoder dead field | A | engineer | D-17, F7 | 80 | — | MERGED |
 | 009 | #21 | Fix D-18 reset() exhaustive + entry tests | A | engineer | D-18, T-2, T-4, F26 | 280 | 001 | MERGED |
 | 010 | #22 | M1 baseline recapture | A | N/A (Project Lead) | NF6, T-10, T-12, SC2 | 50 | 001-009 | MERGED |
-| 011 | #23 | Fix D-4 RFC3339 default | B | engineer | D-4, F28, TS-23 | 140 | 001, 010 | PENDING |
-| 012 | #24 | Fix D-7+D-13 addSource off | B | engineer | D-7, D-13, F6, R4 | 160 | 001, 010 | PENDING |
+| 011 | #23 | Fix D-4 RFC3339 default | B | engineer | D-4, F28, TS-23 | 140 | 001, 010 | MERGED |
+| 012 | #24 | Fix D-7+D-13 addSource off | B | engineer | D-7, D-13, F6, R4 | 160 | 001, 010 | MERGED |
 | 013 | #25 | Fix D-1 source capture (F17) | B | engineer | D-1, F17, SC3, ARCH-3 | 200 | 012 | PENDING |
-| 014 | #26 | Fix D-8 collision-set + SC7 | B | engineer | D-8, F14, SC7 | 280 | 001 | PENDING |
+| 014 | #26 | Fix D-8 collision-set + SC7 | B | engineer | D-8, F14, SC7 | 280 | 001 | MERGED |
 | 015 | #27 | ARCH-2 encoder iface Append | B | engineer | ARCH-2, ARCH-14, F7-F9 | 240 | 008 | PENDING |
 | 016 | #28 | Fix D-2 JSON RFC8259 escape | B | engineer | D-2, F10, SC4 | 280 | 015 | PENDING |
 | 017 | #29 | Fix D-5 strconv ParseLogField | B | engineer | D-5, F10, NF1 | 260 | 016 | PENDING |
