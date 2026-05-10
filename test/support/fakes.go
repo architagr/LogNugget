@@ -45,7 +45,9 @@ func (w *FakeWriter) Count() int {
 }
 
 // SpyHook is a chan-backed config.PublishLogMessageHookContract that
-// records published payloads in FIFO order.
+// records published payloads in FIFO order. The contract surface is
+// PublishLogMessage([]byte) only — level is not propagated by the
+// upstream hook contract.
 //
 // Buffering is bounded: once the channel is full, further publishes
 // are dropped silently (never block the producer). Callers MUST size
