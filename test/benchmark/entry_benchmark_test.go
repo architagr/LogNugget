@@ -38,7 +38,6 @@ func (e *MockWriter) Write(p []byte) (n int, err error) {
 func Benchmark_Log(b *testing.B) {
 	b.StopTimer()
 	out := &MockWriter{}
-	config.SetOutput(&MockWriter{})
 	config.SetMinLevel(enum.LevelDebug)
 	config.SetEncoderType(enum.EncoderJSON)
 	config.SetStaticEnvFieldsParser(func() map[string]any {
@@ -62,10 +61,17 @@ func Benchmark_Log(b *testing.B) {
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, unsetPostProcessor)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
 	entry.GenerateInitialPool(1_000_000)
+
+	ctxs := make([]context.Context, b.N)
+	for i := range ctxs {
+		ctxs[i] = context.WithValue(context.WithValue(context.Background(), "requestID", i), "userID", "User1234")
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		ctx := context.WithValue(context.WithValue(context.Background(), "requestID", i), "userID", "User1234")
 		entryObj := entry.NewLogEntry()
-		entryObj.Debug(ctx, "debug message that has a log message, from lognugget", model.LogAttr{Key: model.LogAttrKey("itrr"), Value: model.LogAttrValue(i)})
+		entryObj.Debug(ctxs[i], "debug message that has a log message, from lognugget", model.LogAttr{Key: model.LogAttrKey("itrr"), Value: model.LogAttrValue(i)})
 	}
 }

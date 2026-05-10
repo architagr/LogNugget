@@ -13,7 +13,7 @@ LOC est: 260.
 ## Tests-first gate
 
 - `test/support/builders_test.go` — verifies `ConfigBuilder.Build()` returns cleanup that calls `config.ResetConfig` (test-only, OK pre-D-9 fix; story 006 will swap to test-only helper).
-- `test/support/fakes_test.go` — `FakeWriter.Bytes/Count` thread-safe; `SpyHook` records (level, []byte) ordered.
+- `test/support/fakes_test.go` — `FakeWriter.Bytes/Count` thread-safe; `SpyHook` records `[]byte` ordered (level recorded by `FakePreProc`, not by hooks).
 
 ## Acceptance
 
@@ -21,7 +21,7 @@ LOC est: 260.
 2. `support.EntryBuilder.WithFields(n)/WithCtx/WithErr/Build`.
 3. `support.EventBuilder` produces `config.LogEvent`.
 4. `FakeWriter` mu-guarded; `Bytes() []byte`, `Count() int`.
-5. `SpyHook` implements `pipelineStage.PublishLogMessageHookContract`; chan-backed record.
+5. `SpyHook` implements `config.PublishLogMessageHookContract` (signature `PublishLogMessage(entry []byte)` — no level arg); chan-backed record.
 6. `FakePreProc` implements `config.preProcessingObserverContract`.
 7. `Build()` returns `func()` cleanup; registers `tb.Cleanup`.
 8. T-13 mitigation: any test using ConfigBuilder is isolated from singleton leak.
