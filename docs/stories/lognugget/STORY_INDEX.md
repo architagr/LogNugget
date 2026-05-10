@@ -15,7 +15,7 @@ PENDING / TESTS_DRAFTED / TESTS_APPROVED / IMPL_IN_PROGRESS / DRAFT_PR / READY /
 |---|---|---|---|---|---|---|---|---|
 | 001 | #13 | TS-01 test/support builders | A | engineer | TS-01, T-13, NF7 | 260 | — | MERGED |
 | 002 | #14 | TS-02 test/support doubles | A | engineer | TS-02, T-1 | 200 | 001 | MERGED |
-| 003 | #15 | TS-03+TS-31 corpus + golden + files | A | engineer | TS-03, TS-31, SC4 | 220 | 001 | PENDING |
+| 003 | #15 | TS-03+TS-31 corpus + golden + files | A | engineer | TS-03, TS-31, SC4 | 220 | 001 | MERGED |
 | 004 | #16 | Fix D-14 go.mod 1.21 | A | engineer | D-14, NF11 | 30 | 001 | MERGED |
 | 005 | #17 | Fix D-15 relocate demo | A | engineer | D-15, NF12, T-9 | 60 | 004 | MERGED |
 | 006 | #18 | Fix D-9 init/ResetConfig test-only | A | engineer | D-9, ARCH-15, NF7, NF8 | 220 | 004 | MERGED |
