@@ -22,7 +22,7 @@ PENDING / TESTS_DRAFTED / TESTS_APPROVED / IMPL_IN_PROGRESS / DRAFT_PR / READY /
 | 007 | #19 | Fix D-3+D-20 EventPreProcessor singleton | A | engineer | D-3, D-20, T-5, T-6, F18, F19 | 280 | 001, 002 | MERGED |
 | 008 | #20 | Fix D-17 JSONEncoder dead field | A | engineer | D-17, F7 | 80 | — | MERGED |
 | 009 | #21 | Fix D-18 reset() exhaustive + entry tests | A | engineer | D-18, T-2, T-4, F26 | 280 | 001 | MERGED |
-| 010 | #22 | M1 baseline recapture | A | N/A (Project Lead) | NF6, T-10, T-12, SC2 | 50 | 001-009 | PENDING |
+| 010 | #22 | M1 baseline recapture | A | N/A (Project Lead) | NF6, T-10, T-12, SC2 | 50 | 001-009 | MERGED |
 | 011 | #23 | Fix D-4 RFC3339 default | B | engineer | D-4, F28, TS-23 | 140 | 001, 010 | PENDING |
 | 012 | #24 | Fix D-7+D-13 addSource off | B | engineer | D-7, D-13, F6, R4 | 160 | 001, 010 | PENDING |
 | 013 | #25 | Fix D-1 source capture (F17) | B | engineer | D-1, F17, SC3, ARCH-3 | 200 | 012 | PENDING |
