@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -211,15 +210,60 @@ func SetRate(rate time.Duration) {
 	defaultConfig.rate = rate
 }
 
-var restrictedFields []string
+// restrictedFieldsSet is the O(1) replacement for the former restrictedFields
+// []string. It holds the current effective field names for the five core log
+// keys (time, level, message, error, caller). Map membership replaces
+// slices.Contains, eliminating the O(n) linear scan on every field validation
+// call.
+//
+// why: D-8 — the slice caused measurable latency growth as the field list
+// grew; map lookup is O(1) regardless of set size and allocates zero bytes
+// per lookup. Populated by resetConfig (for built-in defaults) and
+// repopulated by SetDefaultFields (when the caller renames a core key).
+//
+// The variable is package-level, not a Config field, because ValidateandParseLogField
+// is a package-level function shared between config and entry; embedding it in
+// *Config would require plumbing the *Config pointer into the entry hot path.
+// Access is serialised by configMu (write under Lock in resetConfig /
+// SetDefaultFields; read under RLock in ValidateandParseLogField).
+var restrictedFieldsSet map[string]struct{}
 
+// buildRestrictedSet constructs a new restricted-field set from the five core
+// keys in fields. It must be called while the caller holds configMu (write).
+func buildRestrictedSet(fields map[enum.DefaultLogKey]string) map[string]struct{} {
+	// why: fixed capacity of 5 — only the five core keys are ever restricted.
+	// Allocating exactly the right size avoids the rehash that would otherwise
+	// occur when the sixth key is inserted (there is no sixth key).
+	set := make(map[string]struct{}, 5)
+	set[fields[enum.DefaultLogKeyCaller]] = struct{}{}
+	set[fields[enum.DefaultLogKeyError]] = struct{}{}
+	set[fields[enum.DefaultLogKeyMessage]] = struct{}{}
+	set[fields[enum.DefaultLogKeyLevel]] = struct{}{}
+	set[fields[enum.DefaultLogKeyTime]] = struct{}{}
+	return set
+}
+
+// ValidateandParseLogField checks whether key collides with a restricted log
+// field name and, if so, prepends DefaultPrefix ("custom.") before delegating
+// to ParseLogField. The restricted-field lookup is O(1) via map membership.
+//
+// Callers: entry.Log (via setLogContextFields) and SetStaticEnvFieldsParser.
+// Both call sites are in the request hot path; the map lookup must remain
+// allocation-free (verified by Benchmark_ValidateField).
 func ValidateandParseLogField(key string, value any) string {
-	if slices.Contains(restrictedFields, key) {
+	configMu.RLock()
+	_, restricted := restrictedFieldsSet[key]
+	configMu.RUnlock()
+	if restricted {
 		key = DefaultPrefix + key
 	}
 	return ParseLogField(key, value)
 }
 
+// ParseLogField serialises key and value into a JSON key-value fragment
+// (e.g. `"key": "value"`). It does not check for reserved-key collisions;
+// callers that need collision detection should use ValidateandParseLogField
+// instead.
 func ParseLogField(key string, value any) string {
 	sb := strings.Builder{}
 	sb.Grow(100 + len(key))
@@ -294,9 +338,17 @@ func DeRegisterHook(level enum.LogLevel, hookName string) {
 	defaultConfig.hooks[level] = levelHooks
 }
 
-// SetDefaultFields merges fields into the default field map used by
-// every log entry. Entries with empty keys or values are skipped. Safe
-// for concurrent use.
+// SetDefaultFields merges fields into the default field map used by every log
+// entry. Entries with empty keys or values are skipped. After merging, the
+// restrictedFieldsSet is rebuilt so that the O(1) collision check always
+// reflects the current (possibly renamed) field names for the five core keys.
+//
+// why: if the caller renames enum.DefaultLogKeyTime from "time" to "ts", the
+// restricted set must track "ts" (not "time") so that a subsequent user field
+// key "ts" is correctly prefixed. Building the set from the post-merge
+// defaultFields map captures the rename atomically under the write lock.
+//
+// Safe for concurrent use.
 func SetDefaultFields(fields map[enum.DefaultLogKey]string) {
 	if fields == nil {
 		return
@@ -309,13 +361,7 @@ func SetDefaultFields(fields map[enum.DefaultLogKey]string) {
 		}
 		defaultConfig.defaultFields[key] = value
 	}
-	restrictedFields = []string{
-		defaultConfig.defaultFields[enum.DefaultLogKeyCaller],
-		defaultConfig.defaultFields[enum.DefaultLogKeyError],
-		defaultConfig.defaultFields[enum.DefaultLogKeyMessage],
-		defaultConfig.defaultFields[enum.DefaultLogKeyLevel],
-		defaultConfig.defaultFields[enum.DefaultLogKeyTime],
-	}
+	restrictedFieldsSet = buildRestrictedSet(defaultConfig.defaultFields)
 }
 
 // GetConfig returns a pointer to the current logger configuration.
@@ -426,6 +472,13 @@ func resetConfig() {
 	ch = newCh
 	defaultConfig = newCfg
 	EventPreProcessors = make(map[string]preProcessingObserverContract)
+	// why: restrictedFieldsSet must be rebuilt here so that
+	// ValidateandParseLogField works correctly from the very first call —
+	// even before any SetDefaultFields call is made. This is the fix for D-8:
+	// the former slice was only populated inside SetDefaultFields, leaving it
+	// empty (and all reserved keys un-prefixed) until the caller explicitly
+	// invoked that function.
+	restrictedFieldsSet = buildRestrictedSet(newCfg.defaultFields)
 	configMu.Unlock()
 
 	// why: the old channel is intentionally not closed here. resetConfig
