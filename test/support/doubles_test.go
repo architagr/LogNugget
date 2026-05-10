@@ -85,15 +85,15 @@ func Test_StubStaticParser_EvaluatesOnce(t *testing.T) {
 	assert.Equal(t, 1, stub.Evaluations(), "F15: static parser must be evaluated once")
 }
 
-// Test_StubEncoder_WritePassthrough covers acceptance #5.
-func Test_StubEncoder_WritePassthrough(t *testing.T) {
+// Test_StubEncoder_AppendPassthrough covers acceptance #5: Append records
+// the body and returns body+newline appended to dst.
+func Test_StubEncoder_AppendPassthrough(t *testing.T) {
 	t.Parallel()
 	enc := support.NewStubEncoder()
-	out, err := enc.Write("hello")
-	require.NoError(t, err)
-	assert.Equal(t, []byte("hello"), out)
+	out := enc.Append(nil, []byte("hello"))
+	assert.Equal(t, []byte("hello\n"), out)
 
-	_, _ = enc.Write("world")
+	enc.Append(nil, []byte("world"))
 	assert.Equal(t, []string{"hello", "world"}, enc.Calls())
 }
 
