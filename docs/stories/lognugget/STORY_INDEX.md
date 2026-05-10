@@ -19,9 +19,9 @@ PENDING / TESTS_DRAFTED / TESTS_APPROVED / IMPL_IN_PROGRESS / DRAFT_PR / READY /
 | 004 | #16 | Fix D-14 go.mod 1.21 | A | engineer | D-14, NF11 | 30 | 001 | MERGED |
 | 005 | #17 | Fix D-15 relocate demo | A | engineer | D-15, NF12, T-9 | 60 | 004 | MERGED |
 | 006 | #18 | Fix D-9 init/ResetConfig test-only | A | engineer | D-9, ARCH-15, NF7, NF8 | 220 | 004 | MERGED |
-| 007 | #19 | Fix D-3+D-20 EventPreProcessor singleton | A | engineer | D-3, D-20, T-5, T-6, F18, F19 | 280 | 001, 002 | PENDING |
+| 007 | #19 | Fix D-3+D-20 EventPreProcessor singleton | A | engineer | D-3, D-20, T-5, T-6, F18, F19 | 280 | 001, 002 | MERGED |
 | 008 | #20 | Fix D-17 JSONEncoder dead field | A | engineer | D-17, F7 | 80 | — | MERGED |
-| 009 | #21 | Fix D-18 reset() exhaustive + entry tests | A | engineer | D-18, T-2, T-4, F26 | 280 | 001 | PENDING |
+| 009 | #21 | Fix D-18 reset() exhaustive + entry tests | A | engineer | D-18, T-2, T-4, F26 | 280 | 001 | MERGED |
 | 010 | #22 | M1 baseline recapture | A | N/A (Project Lead) | NF6, T-10, T-12, SC2 | 50 | 001-009 | PENDING |
 | 011 | #23 | Fix D-4 RFC3339 default | B | engineer | D-4, F28, TS-23 | 140 | 001, 010 | PENDING |
 | 012 | #24 | Fix D-7+D-13 addSource off | B | engineer | D-7, D-13, F6, R4 | 160 | 001, 010 | PENDING |
@@ -51,7 +51,7 @@ PENDING / TESTS_DRAFTED / TESTS_APPROVED / IMPL_IN_PROGRESS / DRAFT_PR / READY /
 | 031 | #48 | README + buffered-hook example | E | engineer | NF12, F31, ARCH-10/11/13, N-2/3 | 220 | 027, 028 | PENDING |
 | 032 | #49 | release/v1.0.0 cut + tag | E | N/A (Project Lead) | PRD §10, M5 | 30 | 029, 030, 031, all M1-M4 | PENDING |
 | 038 | #53 | bench-check.sh path doc fix | A | N/A (PL) | doc | ≤10 | — | DOC-FIXED |
-| 039 | #54 | Fix config.ResetConfig race | A | engineer | NF7, NF9, race | 200 | 006 | PENDING |
+| 039 | #54 | Fix config.ResetConfig race | A | engineer | NF7, NF9, race | 200 | 006 | MERGED |
 | 040 | #55 | Story 001 doc drift fix | A | N/A (PL) | doc | ≤30 | — | DONE |
 
 ## SC traceability
