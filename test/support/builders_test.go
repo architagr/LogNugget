@@ -47,7 +47,7 @@ func Test_NewConfigBuilder_ChainsAllSettersAndCleansUp(t *testing.T) {
 	cfg = config.GetConfig()
 	assert.Equal(t, config.DafaultLevel, cfg.MinLevel(), "cleanup must restore default min-level")
 	assert.Equal(t, config.DafaultEncoderType, cfg.EncoderType(), "cleanup must restore default encoder")
-	assert.Equal(t, config.DafaultAddSource, cfg.AddSource(), "cleanup must restore default addSource")
+	assert.Equal(t, config.DefaultAddSource, cfg.AddSource(), "cleanup must restore default addSource")
 }
 
 // Test_ConfigBuilder_TBCleanupRunsAutomatically asserts the cleanup
