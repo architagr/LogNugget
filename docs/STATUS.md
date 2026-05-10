@@ -23,15 +23,63 @@
 
 ---
 
-## SLO Gate
+## SLO Progress — Hot-path Latency (< 1 µs target)
 
-| Check | Target | Status |
-|-------|--------|--------|
-| Hot-path p99 | **< 1 µs (1,000 ns/op)** | ✅ Gate armed (`scripts/bench-check.sh`) |
-| M1 baseline | captured | ✅ story 010 MERGED |
-| `-race` sweep | clean | ✅ stories 010 + 039 |
-| M3 baseline | Epic C work | ⏳ story 037 PENDING |
-| Final baseline | release | ⏳ story 032 PENDING |
+```
+Benchmark_Log  ·  Apple M1 Pro  ·  go test -bench=. -count=10
+
+  0 ns ──────────────────────────────────── 2,000 ns
+  │                        TARGET           │
+  │                           │             │
+  ├── 0 ──── 500 ──── 1000 ──►│◄── 1500 ──── 2000
+  │                           │                  │
+  │          [████████████████████████████░░░░░] │
+  │                           │        ▲         │
+  │          ◄──── NEED ────► │        │         │
+  │                890 ns     │    NOW: ~1,890 ns/op
+  │                           │    (M1 baseline, story 010)
+  │                      SLO GATE
+  │                     1,000 ns/op
+```
+
+### Latency budget — where the ns go
+
+```
+  ┌────────────────────────────────────────────────────────────┐
+  │  Component              │ Est. ns  │  Closes in   │ Story  │
+  │─────────────────────────┼──────────┼──────────────┼────────│
+  │  Level gate (fast path) │   ~10    │  done (A)    │  012   │
+  │  Field build / parsing  │  ~400    │  Epic B/C    │ 017-019│
+  │  JSON encode + framing  │  ~150    │  Epic B      │ 015-016│
+  │  Source capture (on)    │  ~250    │  Epic B      │  013   │
+  │  Source capture (off)   │    ~0    │  done        │  012   │
+  │  Pool alloc (cold)      │  ~600    │  Epic C      │  021   │
+  │  Pool alloc (warm)      │   ~40    │  Epic C goal │  021   │
+  │  Channel send           │  ~440    │  Epic C/D    │  025   │
+  │─────────────────────────┼──────────┼──────────────┼────────│
+  │  Current total (M1)     │ ~1,890   │              │        │
+  │  Target total           │  < 1,000 │  v1.0.0      │  032   │
+  └────────────────────────────────────────────────────────────┘
+```
+
+### Milestone tracking
+
+| Milestone | ns/op | allocs/op | B/op | Status |
+|-----------|-------|-----------|------|--------|
+| **Pre-v1 (raw)** | ~1,246 | ~25 | — | historical (PRD baseline) |
+| **M1** (story 010) | **~1,890** | **22** | **1,881** | ✅ CAPTURED |
+| **M3** (story 037) | < 1,200 projected | ≤ 20 | ≤ 1,500 | ⏳ Epic C |
+| **Final** (story 032) | **< 1,000** | ≤ 30 | ≤ 2,048 | ⏳ Release |
+
+### Gate checks
+
+| Check | Target | Current | Status |
+|-------|--------|---------|--------|
+| Hot-path mean | < 1,000 ns/op | ~1,890 ns/op | ❌ 1.89× over (gap: ~890 ns) |
+| Allocs | ≤ 30/op | 22/op | ✅ |
+| Bytes | ≤ 2,048/op | 1,881/op | ✅ |
+| `-race` | clean | clean | ✅ |
+| `bench-check.sh` | PASS | ❌ FAIL (gate now at 1,000 ns) | ⚠️ Epic C will close gap |
 
 ---
 
