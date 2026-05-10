@@ -228,4 +228,22 @@ func Test_LogEntry_Methods(t *testing.T) {
 			t.Errorf("Panic message field = %q, want \"panic message\"", got["message"])
 		}
 	})
+
+	// SC1_ZeroConfig_NoCallerField verifies that zero-config Log() does not
+	// emit a "caller" field in the JSON output (SC1 / D-7 regression guard).
+	// why: caller is only appended when e.caller != nil; addSource defaults to
+	// false. resetAndSpy resets the singleton without calling SetAddSource so
+	// addSource remains false — the zero-config state.
+	t.Run("SC1_ZeroConfig_NoCallerField", func(t *testing.T) {
+		spy := resetAndSpy(t, "sc1")
+
+		entry.NewLogEntry().Info(context.Background(), "sc1-zero-config")
+
+		raw := drainSpy(t, spy)
+		got := parseLogJSON(t, raw)
+
+		if _, hasCaller := got["caller"]; hasCaller {
+			t.Errorf("SC1: zero-config JSON must not contain 'caller' field (addSource=false); got: %s", raw)
+		}
+	})
 }

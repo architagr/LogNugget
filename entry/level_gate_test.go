@@ -110,17 +110,19 @@ func Test_LogEntry_FilteredPath_ZeroAlloc(t *testing.T) {
 	}
 }
 
-// Test_DefaultAddSource_False verifies that the zero-config default for
-// addSource is false (TS-05, acceptance #1 / D-7). After TestResetConfig
-// the singleton must report AddSource() == false.
+// Test_DefaultAddSource_False verifies that the package-level default for
+// addSource is false (TS-05, acceptance #1 / D-7). The constant DefaultAddSource
+// drives resetConfig, so checking it is equivalent to checking a fresh singleton.
+//
+// why: TestResetConfig is intentionally NOT called here. Test_DefaultAddSource_False
+// runs in parallel with Test_LogEntry_Methods. If TestResetConfig ran concurrently
+// with a Test_LogEntry_Methods sub-test it would wipe EventPreProcessors after
+// the sub-test's spy was installed, causing drainSpy to hang (T-13 hazard / #54).
+// Checking the constant avoids any config mutation during the parallel phase.
 func Test_DefaultAddSource_False(t *testing.T) {
 	t.Parallel()
 
-	t.Cleanup(func() { config.TestResetConfig() })
-
-	config.TestResetConfig()
-
-	if got := config.GetConfig().AddSource(); got != false {
-		t.Errorf("default AddSource = %v, want false — DafaultAddSource must be renamed to DefaultAddSource and set to false", got)
+	if config.DefaultAddSource != false {
+		t.Errorf("DefaultAddSource package constant = %v, want false — zero-config deployments must not pay runtime.Callers overhead (D-7)", config.DefaultAddSource)
 	}
 }
