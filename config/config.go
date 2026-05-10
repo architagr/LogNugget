@@ -30,7 +30,7 @@ var (
 	DafaultEncoderType enum.LogEncodeType = enum.EncoderJSON // Default encoder type
 	DafaultAddSource   bool               = true             // Default to add source information
 	DefaultOutput      io.Writer          = os.Stdout        // Default output writer
-	DefaultTimeFormat  string             = time.RFC822      // Default time format for log entries
+	DefaultTimeFormat  string             = time.RFC3339     // Default time format for log entries
 	DafaultLogBuffer   int                = 20               // Default buffer size for logs
 	DefaultPrefix      string             = "custom."
 )
