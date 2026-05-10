@@ -18,6 +18,13 @@ import (
 	pipelineStage "github.com/architagr/lognugget/pipeline_stage"
 )
 
+type ctxKey string
+
+const (
+	ctxKeyRequestID ctxKey = "requestID"
+	ctxKeyUserID    ctxKey = "userID"
+)
+
 // MockWriter is a discard io.Writer used by Benchmark_Log to avoid I/O cost.
 type MockWriter struct {
 }
@@ -47,8 +54,8 @@ func Benchmark_Log(b *testing.B) {
 		}
 	})
 	config.SetContextFieldsParser(func(ctx context.Context) map[string]any {
-		requestId := ctx.Value("requestID")
-		userId := ctx.Value("userID")
+		requestId := ctx.Value(ctxKeyRequestID)
+		userId := ctx.Value(ctxKeyUserID)
 		return map[string]any{
 			"request_id": requestId,
 			"user_id":    userId,
@@ -64,7 +71,7 @@ func Benchmark_Log(b *testing.B) {
 
 	ctxs := make([]context.Context, b.N)
 	for i := range ctxs {
-		ctxs[i] = context.WithValue(context.WithValue(context.Background(), "requestID", i), "userID", "User1234")
+		ctxs[i] = context.WithValue(context.WithValue(context.Background(), ctxKeyRequestID, i), ctxKeyUserID, "User1234")
 	}
 
 	b.ReportAllocs()
