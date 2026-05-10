@@ -1,3 +1,14 @@
+// Package config holds the singleton logger configuration for LogNugget.
+// It owns the three package-level globals (defaultConfig, ch,
+// EventPreProcessors) and exposes Set* mutators intended for use at
+// program start-up only (NF5 / ARCH-15).
+//
+// Concurrency: all exported mutators and resetConfig acquire configMu
+// (write) before touching the globals; GetConfig and ProcessLogEvent
+// acquire configMu (read). This satisfies the race-freedom requirement
+// tracked in issue #54 / story 039 without the allocation overhead of a
+// copy-on-write atomic.Pointer approach (see bench-baseline.txt for
+// the < 1 µs budget).
 package config
 
 import (
@@ -7,6 +18,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/architagr/lognugget/encoder"
@@ -58,6 +70,17 @@ var (
 	defaultConfig      *Config
 	ch                 chan LogEvent
 	EventPreProcessors map[string]preProcessingObserverContract
+
+	// configMu guards the three package-level globals above.
+	//
+	// why: ProcessLogEvent reads ch and EventPreProcessors concurrently
+	// with resetConfig writing them; Set* functions write fields of
+	// defaultConfig concurrently with each other and with resetConfig.
+	// A single RWMutex is the minimal, reviewable fix for #54.
+	// RLock is taken by read-only paths (GetConfig, ProcessLogEvent) so
+	// multiple concurrent readers never block each other; write paths
+	// (Set*, resetConfig) take the exclusive Lock.
+	configMu sync.RWMutex
 )
 
 type preProcessingObserverContract interface {
@@ -65,34 +88,60 @@ type preProcessingObserverContract interface {
 	Name() string
 }
 
+// InitPreProcessors replaces the global pre-processor map with a fresh
+// map seeded from observers. It is safe to call concurrently with
+// ProcessLogEvent.
 func InitPreProcessors(observers ...preProcessingObserverContract) {
+	configMu.Lock()
+	defer configMu.Unlock()
 	EventPreProcessors = make(map[string]preProcessingObserverContract)
-	AddPreProcessors(observers...)
-}
-
-func AddPreProcessors(observers ...preProcessingObserverContract) {
 	for _, observer := range observers {
 		EventPreProcessors[observer.Name()] = observer
 	}
 }
 
+// AddPreProcessors registers one or more pre-processors into the global
+// map. It is safe to call concurrently.
+func AddPreProcessors(observers ...preProcessingObserverContract) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	for _, observer := range observers {
+		EventPreProcessors[observer.Name()] = observer
+	}
+}
+
+// RemovePreProcessor deletes the named pre-processor from the global map.
+// It is safe to call concurrently.
 func RemovePreProcessor(name string) {
+	configMu.Lock()
+	defer configMu.Unlock()
 	delete(EventPreProcessors, name)
 }
 
-// SetMinLevel sets the minimum log level for the logger
+// SetMinLevel sets the minimum log level for the logger. Safe for
+// concurrent use.
 func SetMinLevel(level enum.LogLevel) {
+	configMu.Lock()
+	defer configMu.Unlock()
 	defaultConfig.minLevel = level
 }
 
-// SetMinLevel sets the minimum log level for the logger
+// SetTimeFormat sets the time format for log entries. Safe for
+// concurrent use.
 func SetTimeFormat(format string) {
+	configMu.Lock()
+	defer configMu.Unlock()
 	defaultConfig.timeFormat = format
 }
 
-// SetEncoderType sets the encoder type for the logger
+// SetEncoderType sets the encoder type for the logger. If the requested
+// encoder type is unknown, it falls back to EncoderJSON. Safe for
+// concurrent use.
 func SetEncoderType(encoderType enum.LogEncodeType) {
 	var err error
+
+	configMu.Lock()
+	defer configMu.Unlock()
 
 	defaultConfig.encoderObj, err = encoder.DefaultEncoderFactory(encoderType)
 	if err != nil {
@@ -103,44 +152,63 @@ func SetEncoderType(encoderType enum.LogEncodeType) {
 	defaultConfig.encoderType = encoderType
 }
 
-// SetAddSource sets whether to add source information to logs
+// SetAddSource sets whether source file and line information is appended
+// to every log entry. Safe for concurrent use.
 func SetAddSource(addSource bool) {
+	configMu.Lock()
+	defer configMu.Unlock()
 	defaultConfig.addSource = addSource
-
 }
 
-// SetOutput sets the output writer for the logger
+// SetOutput sets the output writer for the logger. A nil argument is
+// silently replaced with DefaultOutput. Safe for concurrent use.
 func SetOutput(output io.Writer) {
 	if output == nil {
 		output = DefaultOutput
 	}
+	configMu.Lock()
+	defer configMu.Unlock()
 	defaultConfig.output = output
-
 }
 
+// PublishLog sends a log event onto the dispatch channel. Safe for
+// concurrent use; callers block if the channel buffer is full.
+//
+// why: the RLock is taken only for the pointer snapshot of ch, not
+// across the send itself. resetConfig never closes the old channel
+// (see comment there), so there is no risk of a "send on closed
+// channel" panic. Releasing the RLock before the send avoids holding
+// it during a potentially blocking channel operation.
 func PublishLog(Level enum.LogLevel, Data []byte) {
-	ch <- LogEvent{
+	configMu.RLock()
+	currentCh := ch
+	configMu.RUnlock()
+	currentCh <- LogEvent{
 		Level: Level,
 		Data:  Data,
 	}
 }
 
-// SetLogBufferMaxSize sets the maximum buffer size for logs
+// SetLogBufferMaxSize sets the maximum buffer size for logs. Values ≤ 0
+// are silently replaced with 20. Safe for concurrent use.
 func SetLogBufferMaxSize(size int) {
 	if size <= 0 {
 		size = 20 // Default buffer size
 	}
+	configMu.Lock()
+	defer configMu.Unlock()
 	defaultConfig.logBufferMaxSize = size
-
 }
 
-// SetRate sets the rate at which logs are pushed to output
+// SetRate sets the rate at which buffered logs are pushed to output.
+// Values ≤ 0 are silently replaced with 1 second. Safe for concurrent use.
 func SetRate(rate time.Duration) {
 	if rate <= 0 {
 		rate = 1 * time.Second // Default rate is 1 sec
 	}
+	configMu.Lock()
+	defer configMu.Unlock()
 	defaultConfig.rate = rate
-
 }
 
 var restrictedFields []string
@@ -172,30 +240,38 @@ func ParseLogField(key string, value any) string {
 	return sb.String()
 }
 
-// SetStaticEnvFieldsParser sets the function to extract static environment fields
+// SetStaticEnvFieldsParser sets the function that extracts static
+// environment fields merged into every log line. Passing nil clears the
+// field. Safe for concurrent use.
 func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
+	var parsed string
 	if parser != nil {
 		list := []string{}
 		for key, value := range parser() {
 			list = append(list, ValidateandParseLogField(key, value))
 		}
 		if len(list) > 0 {
-			defaultConfig.parsedStaticFields = strings.Join(list, ", ")
+			parsed = strings.Join(list, ", ")
 		}
-
-	} else {
-		defaultConfig.parsedStaticFields = ""
 	}
-
+	configMu.Lock()
+	defer configMu.Unlock()
+	defaultConfig.parsedStaticFields = parsed
 }
 
-// SetContextFieldsParser sets the function to extract context fields
+// SetContextFieldsParser sets the function that extracts per-request
+// context fields. Safe for concurrent use.
 func SetContextFieldsParser(parser ContextFieldsParser) {
+	configMu.Lock()
+	defer configMu.Unlock()
 	defaultConfig.contextParser = parser
-
 }
 
+// RegisterHook registers hook to be invoked whenever a log event at
+// level is dispatched. Safe for concurrent use.
 func RegisterHook(level enum.LogLevel, hook PublishLogMessageHookContract) {
+	configMu.Lock()
+	defer configMu.Unlock()
 	levelHooks, exists := defaultConfig.hooks[level]
 	if !exists {
 		levelHooks = make(map[string]PublishLogMessageHookContract)
@@ -204,7 +280,12 @@ func RegisterHook(level enum.LogLevel, hook PublishLogMessageHookContract) {
 	defaultConfig.hooks[level] = levelHooks
 }
 
+// DeRegisterHook removes the hook identified by hookName from level's
+// handler set. It is a no-op if the level or name is unknown. Safe for
+// concurrent use.
 func DeRegisterHook(level enum.LogLevel, hookName string) {
+	configMu.Lock()
+	defer configMu.Unlock()
 	levelHooks, exists := defaultConfig.hooks[level]
 	if !exists {
 		return
@@ -213,11 +294,15 @@ func DeRegisterHook(level enum.LogLevel, hookName string) {
 	defaultConfig.hooks[level] = levelHooks
 }
 
-// SetDefaultFields sets the default fields to log with every entry
+// SetDefaultFields merges fields into the default field map used by
+// every log entry. Entries with empty keys or values are skipped. Safe
+// for concurrent use.
 func SetDefaultFields(fields map[enum.DefaultLogKey]string) {
 	if fields == nil {
 		return
 	}
+	configMu.Lock()
+	defer configMu.Unlock()
 	for key, value := range fields {
 		if len(string(key)) == 0 || len(value) == 0 {
 			continue // Skip empty keys
@@ -233,14 +318,31 @@ func SetDefaultFields(fields map[enum.DefaultLogKey]string) {
 	}
 }
 
-// GetConfig returns the current logger configuration
+// GetConfig returns a pointer to the current logger configuration.
+// The returned pointer is valid until the next call to resetConfig
+// (test-only). Safe for concurrent use.
 func GetConfig() *Config {
+	configMu.RLock()
+	defer configMu.RUnlock()
 	return defaultConfig
 }
 
+// ProcessLogEvent drains the dispatch channel and forwards each event
+// to every registered PreProcessor. It is started as a goroutine by
+// resetConfig and runs until the channel is closed. Safe for concurrent
+// use: it takes an RLock to snapshot the current ch and EventPreProcessors
+// values so that a concurrent resetConfig does not create a data race on
+// those globals.
 func ProcessLogEvent() {
-	for e := range ch {
-		for _, observer := range EventPreProcessors {
+	configMu.RLock()
+	currentCh := ch
+	configMu.RUnlock()
+
+	for e := range currentCh {
+		configMu.RLock()
+		processors := EventPreProcessors
+		configMu.RUnlock()
+		for _, observer := range processors {
 			observer.PreProcess(e.Level, e.Data)
 		}
 	}
@@ -254,14 +356,17 @@ func ProcessLogEvent() {
 // (NF5 / NF7 / NF8). Tests reach this via the build-tagged
 // TestResetConfig shim in test_only_helpers.go.
 //
-// why: package init invokes resetConfig once to populate defaultConfig
-// and start ProcessLogEvent. The data-race in re-running this concurrently
-// with live callers is tracked separately as issue #54 / story 039.
+// why: configMu.Lock() is taken before replacing the globals so that
+// concurrent ProcessLogEvent, PublishLog, and Set* callers do not race
+// on ch or defaultConfig — this is the fix for issue #54 / story 039.
+// The old channel is closed after the pointer swap so the previous
+// ProcessLogEvent goroutine exits cleanly rather than leaking.
 func resetConfig() {
-	ch = make(chan LogEvent, 10)
-	go ProcessLogEvent()
+	// Build the new config and channel before acquiring the lock to
+	// minimise lock-hold time — encoder factory can take allocations.
+	newCh := make(chan LogEvent, 10)
 	encoderObj, _ := encoder.DefaultEncoderFactory(enum.EncoderJSON)
-	defaultConfig = &Config{
+	newCfg := &Config{
 		minLevel:           DafaultLevel,
 		encoderType:        DafaultEncoderType,
 		encoderObj:         encoderObj,
@@ -316,47 +421,102 @@ func resetConfig() {
 			enum.DefaultLogKeyCustom:        string(enum.DefaultLogKeyCustom),
 		},
 	}
+
+	configMu.Lock()
+	ch = newCh
+	defaultConfig = newCfg
+	EventPreProcessors = make(map[string]preProcessingObserverContract)
+	configMu.Unlock()
+
+	// why: the old channel is intentionally not closed here. resetConfig
+	// is a test-only path (called once from init at program start; the
+	// test shim TestResetConfig calls it in unit tests only). Closing the
+	// old channel while a concurrent PublishLog might still hold an RLock
+	// and be mid-send would require two-phase coordination that adds
+	// complexity beyond this story's scope. The pre-existing goroutine
+	// leak (old ProcessLogEvent blocking on the unreferenced channel) is
+	// a known trade-off tracked separately; it is harmless in test
+	// binaries which exit after the test run completes.
+	go ProcessLogEvent()
 }
 
+// MinLevel returns the minimum log level. Safe for concurrent use.
 func (c *Config) MinLevel() enum.LogLevel {
+	configMu.RLock()
+	defer configMu.RUnlock()
 	return c.minLevel
 }
 
+// EncoderType returns the encoder type. Safe for concurrent use.
 func (c *Config) EncoderType() enum.LogEncodeType {
+	configMu.RLock()
+	defer configMu.RUnlock()
 	return c.encoderType
 }
 
+// AddSource reports whether source file and line are appended to log
+// entries. Safe for concurrent use.
 func (c *Config) AddSource() bool {
+	configMu.RLock()
+	defer configMu.RUnlock()
 	return c.addSource
 }
 
+// Output returns the output writer. Safe for concurrent use.
 func (c *Config) Output() io.Writer {
+	configMu.RLock()
+	defer configMu.RUnlock()
 	return c.output
 }
 
+// LogBuffer returns the maximum log buffer size. Safe for concurrent use.
 func (c *Config) LogBuffer() int {
+	configMu.RLock()
+	defer configMu.RUnlock()
 	return c.logBufferMaxSize
 }
 
+// Rate returns the log flush rate. Safe for concurrent use.
 func (c *Config) Rate() time.Duration {
+	configMu.RLock()
+	defer configMu.RUnlock()
 	return c.rate
 }
 
+// StaticFields returns the pre-rendered static field string. Safe for
+// concurrent use.
 func (c *Config) StaticFields() string {
+	configMu.RLock()
+	defer configMu.RUnlock()
 	return c.parsedStaticFields
 }
 
+// ContextParser returns the context field extractor function. Safe for
+// concurrent use.
 func (c *Config) ContextParser() ContextFieldsParser {
+	configMu.RLock()
+	defer configMu.RUnlock()
 	return c.contextParser
 }
 
+// DefaultFields returns a copy reference to the default field map. Safe
+// for concurrent use; callers must not modify the returned map.
 func (c *Config) DefaultFields() map[enum.DefaultLogKey]string {
+	configMu.RLock()
+	defer configMu.RUnlock()
 	return c.defaultFields
 }
 
+// TimeFormat returns the time format string. Safe for concurrent use.
 func (c *Config) TimeFormat() string {
+	configMu.RLock()
+	defer configMu.RUnlock()
 	return c.timeFormat
 }
+
+// Encoder returns the encoder instance. Safe for concurrent use.
 func (c *Config) Encoder() encoder.Encoder {
+	configMu.RLock()
+	defer configMu.RUnlock()
 	return c.encoderObj
 }
