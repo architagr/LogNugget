@@ -1,7 +1,10 @@
+//go:build testing
+
 // Package support provides test builders and lightweight fakes/spies
 // for the lognugget logger. Test-only; consumed by *_test.go across
 // the module to keep arrange-phase setup terse and free of singleton
-// leak hazards (T-13).
+// leak hazards (T-13). The package compiles only under the `testing`
+// build tag so production binaries cannot import it (D-9 / ARCH-15).
 package support
 
 import (
@@ -62,7 +65,9 @@ func (b *ConfigBuilder) Build() func() {
 	for _, fn := range b.apply {
 		fn()
 	}
-	cleanup := func() { config.ResetConfig() }
+	// why: TestResetConfig is the build-tagged shim around the unexported
+	// resetConfig (D-9 / ARCH-15); production code cannot reach it.
+	cleanup := func() { config.TestResetConfig() }
 	b.tb.Cleanup(cleanup)
 	return cleanup
 }

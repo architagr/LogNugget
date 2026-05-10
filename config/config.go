@@ -31,7 +31,7 @@ type StaticEnvFieldsParser = func() map[string]any
 type ContextFieldsParser = func(ctx context.Context) map[string]any
 
 func init() {
-	ResetConfig()
+	resetConfig()
 }
 
 type Config struct {
@@ -246,8 +246,18 @@ func ProcessLogEvent() {
 	}
 }
 
-// ResetConfig resets the logger configuration to default values
-func ResetConfig() {
+// resetConfig resets the logger configuration to default values.
+//
+// Unexported by design (D-9 / ARCH-15): exposing this at runtime would
+// let production callers re-create the dispatch channel + dispatcher
+// goroutine, leaking goroutines and dropping in-flight events
+// (NF5 / NF7 / NF8). Tests reach this via the build-tagged
+// TestResetConfig shim in test_only_helpers.go.
+//
+// why: package init invokes resetConfig once to populate defaultConfig
+// and start ProcessLogEvent. The data-race in re-running this concurrently
+// with live callers is tracked separately as issue #54 / story 039.
+func resetConfig() {
 	ch = make(chan LogEvent, 10)
 	go ProcessLogEvent()
 	encoderObj, _ := encoder.DefaultEncoderFactory(enum.EncoderJSON)
