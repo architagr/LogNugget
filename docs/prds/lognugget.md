@@ -13,7 +13,7 @@ Today: 2026-05-07.
 
 LogNugget is a Go logging library (not a service) that delivers three things existing Go loggers do not give simultaneously: a non-blocking caller-side hot path, first-class `context.Context` extraction of correlation IDs (trace, span, request, user), and near-zero steady-state allocation through `sync.Pool` recycling of log entries.
 
-The business intent of v1 is to publish a tagged `v1.0.0` library that Go service teams can adopt as a drop-in replacement for `slog`/`zap`/`zerolog` when their service is sensitive to tail latency on the request path and to GC pause frequency at high event rates. The acceptance bar is the project-wide < 1 ms p99 hot-path SLO declared in `CLAUDE.md`, enforced by `./.claude/scripts/bench-check.sh`.
+The business intent of v1 is to publish a tagged `v1.0.0` library that Go service teams can adopt as a drop-in replacement for `slog`/`zap`/`zerolog` when their service is sensitive to tail latency on the request path and to GC pause frequency at high event rates. The acceptance bar is the project-wide < 1 µs p99 hot-path SLO declared in `CLAUDE.md`, enforced by `./scripts/bench-check.sh`.
 
 ---
 
@@ -22,7 +22,7 @@ The business intent of v1 is to publish a tagged `v1.0.0` library that Go servic
 ### 2.1 Goals (lifted directly from Wiki §2)
 
 - G1. Idiomatic `Debug/Info/Warn/Error/Fatal/Panic` API that is non-blocking on the caller's goroutine with respect to IO.
-- G2. Hot-path call returns to caller in < 1 ms p99 under realistic field volumes (≤ 16 fields per event).
+- G2. Hot-path call returns to caller in < 1 µs p99 under realistic field volumes (≤ 16 fields per event).
 - G3. Drive steady-state hot-path allocations toward zero via `sync.Pool` reuse of `LogEntry` and pre-sized buffers.
 - G4. First-class structured context: a single `SetContextFieldsParser` registration extracts trace/span/request/user IDs on every log call without per-call boilerplate.
 - G5. Pluggable output via hooks (per-level and `LevelUnSet`) for ELK / Loki / Datadog / arbitrary `io.Writer` sinks.
@@ -117,8 +117,8 @@ IDs are stable. The Architect may cite `F<n>` directly. Each item carries a MUST
 
 ### 4.1 Performance (the hard SLO)
 
-- **NF1 (MUST)** — Hot path returns to caller in < 1 ms p99. The hot path is the caller-returning portion of `Info/Warn/Error` (i.e., everything up to and including the channel send), **not** IO flush. IO is async / batched and excluded by design.
-- **NF2 (MUST)** — `*_bench_test.go` covers the hot path end-to-end with `b.ReportAllocs()`. The existing `test/benchmark/entry_benchmark_test.go` is the harness; current best is ~1246 ns/op @ ~25 allocs/op. v1 must keep mean ns/op < 1,000,000 even after F10, F17, F28 land.
+- **NF1 (MUST)** — Hot path returns to caller in < 1 µs p99. The hot path is the caller-returning portion of `Info/Warn/Error` (i.e., everything up to and including the channel send), **not** IO flush. IO is async / batched and excluded by design.
+- **NF2 (MUST)** — `*_bench_test.go` covers the hot path end-to-end with `b.ReportAllocs()`. The existing `test/benchmark/entry_benchmark_test.go` is the harness; current best is ~1246 ns/op @ ~25 allocs/op. v1 must bring mean ns/op < 1,000 (1 µs) by the time Epic C pool-reuse lands; F10, F17, F28 must not regress further.
 
 - **NF3 (MUST) — Allocation ceiling.** Hot path target: **≤ 30 allocs/op and ≤ 2,048 bytes/op** at steady state for an event with ≤ 16 user fields plus context-parser fields.
   *Decision: 30 allocs/op and 2 KB/op. Rationale: the existing baseline is ~25 allocs/op, leaving a 5-alloc headroom for spec-compliant JSON escaping (F10) and source capture (F17) before the gate trips. 2 KB/op covers typical event size (16 fields × ~64 bytes rendered + overhead) without wasting headroom — both are checked by `bench-check.sh` via benchstat against `bench-baseline.txt`.*
@@ -128,7 +128,7 @@ IDs are stable. The Architect may cite `F<n>` directly. Each item carries a MUST
 
 - **NF5 (MUST) — Backpressure on buffer overflow.** When the dispatch channel is full, the caller goroutine blocks on `ch <- event` (Wiki F23). The library does not silently drop in v1. Documentation on every public log method must call this out so high-throughput consumers either size buffers (via post-processor `maxBufferSize`) or pre-filter at call sites. A `SetOverflowPolicy(BlockOrDrop)` option is explicitly v2.
 
-- **NF6 (MUST)** — The `bench-check.sh` build gate blocks merges that exceed any of: 1 ms mean (NF1), allocs/op or bytes/op ceiling (NF3), or benchstat-significant regression vs `bench-baseline.txt`. No exceptions; bypass is not permitted (per `CLAUDE.md` Performance Gate).
+- **NF6 (MUST)** — The `bench-check.sh` build gate blocks merges that exceed any of: 1 µs mean (NF1), allocs/op or bytes/op ceiling (NF3), or benchstat-significant regression vs `bench-baseline.txt`. No exceptions; bypass is not permitted (per `CLAUDE.md` Performance Gate).
 
 ### 4.2 Concurrency & safety
 
@@ -163,7 +163,7 @@ IDs are stable. The Architect may cite `F<n>` directly. Each item carries a MUST
 - **Test dependency**: `github.com/stretchr/testify` (already present, fine to keep).
 - **Build & test**: `go build ./...`, `go test ./...`, `go test -race ./...` (per `CLAUDE.md`).
 - **Lint**: `golangci-lint run` (per `CLAUDE.md`).
-- **Bench gate**: `./.claude/scripts/bench-check.sh` — canonical, blocks merges on > 1 ms mean, allocs/op > 30, bytes/op > 2,048, or benchstat-significant regression (`CLAUDE.md` Performance Gate, NF6).
+- **Bench gate**: `./scripts/bench-check.sh` — canonical, blocks merges on > 1 µs mean (1,000 ns/op), allocs/op > 30, bytes/op > 2,048, or benchstat-significant regression (`CLAUDE.md` Performance Gate, NF6).
 - **Existing stack alignment**: the project's broader stack (PostgreSQL, Redis, gRPC, fiber, OpenTelemetry per `CLAUDE.md`) is **not relevant to LogNugget**; LogNugget is a pure Go library with no DB / network surface. The bench gate, branching, and Go standards from `CLAUDE.md` apply unchanged.
 
 ---
@@ -244,7 +244,7 @@ The package-to-feature trace the Architect can use to scope the LLD:
 A v1 release is complete and shippable when **every** criterion below is measurably true on `develop` and on the `release/v1.0.0` branch:
 
 - **SC1** — `entry.NewLogEntry().Info(ctx, "msg")` against zero-config defaults produces a valid JSON log line on `os.Stdout` ending with `\n`. Verified by integration test.
-- **SC2** — `Benchmark_Log` passes `./.claude/scripts/bench-check.sh`: mean ns/op < 1,000,000 (NF1), allocs/op ≤ 30 and bytes/op ≤ 2,048 (NF3), no benchstat-significant regression vs `bench-baseline.txt`.
+- **SC2** — `Benchmark_Log` passes `./scripts/bench-check.sh`: mean ns/op < 1,000 = 1 µs (NF1), allocs/op ≤ 30 and bytes/op ≤ 2,048 (NF3), no benchstat-significant regression vs `bench-baseline.txt`.
 - **SC3** — F17 source capture functional: with `addSource=true`, every log line carries `caller` set to the call-site function name; `TODO` removed from `LogEntry.Log`.
 - **SC4** — F10 JSON encoder is RFC 8259 conformant: `encoding/json.Unmarshal` round-trips a 1,000-event corpus covering string, int, float, error, nested context, unicode, and embedded-quote inputs without error.
 - **SC5** — F30 `Stop()` drains all queued events on shutdown; integration test asserts zero loss for ≤ `maxBufferSize × 2` events queued at the moment of `Stop()`.
