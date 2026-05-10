@@ -45,14 +45,23 @@ func (w *FakeWriter) Count() int {
 }
 
 // SpyHook is a chan-backed config.PublishLogMessageHookContract that
-// records published payloads in FIFO order. Bounded buffer; overflow
-// is dropped (not blocked) to keep producers deterministic.
+// records published payloads in FIFO order.
+//
+// Buffering is bounded: once the channel is full, further publishes
+// are dropped silently (never block the producer). Callers MUST size
+// the capacity at construction time to be at least the number of
+// events the test expects to observe; oversize is harmless, undersize
+// causes lost records.
 type SpyHook struct {
 	name    string
 	records chan config.LogEvent
 }
 
-// NewSpyHook returns a SpyHook with name and buffer capacity (>=1).
+// NewSpyHook returns a SpyHook with the given name and buffer
+// capacity. Any capacity < 1 is silently raised to 1 so the zero
+// value is usable; tests that need "always block" semantics are not
+// supported by this fake — pick a capacity sized to the expected
+// event count instead.
 func NewSpyHook(name string, capacity int) *SpyHook {
 	if capacity < 1 {
 		capacity = 1
