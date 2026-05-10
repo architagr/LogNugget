@@ -1,3 +1,5 @@
+//go:build testing
+
 // Package support_test exercises the test/support helpers.
 package support_test
 
