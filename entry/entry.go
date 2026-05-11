@@ -3,7 +3,6 @@ package entry
 import (
 	"context"
 	"runtime"
-	"strings"
 	"sync"
 
 	"github.com/architagr/lognugget/config"
@@ -117,7 +116,7 @@ func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string,
 // stack depth) without exposing that parameter on the public API.
 func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message string, err error, skip int, fields ...model.LogAttr) {
 	// why: level gate runs BEFORE EventPreProcessors check and before any
-	// allocation (make, strings.Join, encoder.Append). A filtered call must
+	// allocation (make, AppendField, encoder.Append). A filtered call must
 	// spend zero heap allocations. D-13 / TS-05.
 	if config.GetConfig().MinLevel() > level {
 		e.Put()
@@ -146,32 +145,52 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 
 	defaultFields := config.GetConfig().DefaultFields()
 	ctxData := e.setLogContextFields(ctx)
-	data := make([]string, 3+len(fields)+len(ctxData))
-	data[0] = config.ParseLogField(defaultFields[enum.DefaultLogKeyTime], customTime.Format(customTime.TimeNow(), config.GetConfig().TimeFormat()))
-	data[1] = config.ParseLogField(defaultFields[enum.DefaultLogKeyLevel], level.String())
-	data[2] = config.ParseLogField(defaultFields[enum.DefaultLogKeyMessage], message)
-	for j, field := range fields {
+
+	// why: pre-allocate 256 bytes so the three mandatory fields (time, level,
+	// message) plus a handful of extras fit without reallocation on the hot
+	// path. 256 is a heuristic covering ~80% of real-world log lines; the
+	// slice grows automatically for larger payloads. D-16 / Story 018.
+	dst := make([]byte, 0, 256)
+	dst = config.AppendField(dst, defaultFields[enum.DefaultLogKeyTime], customTime.Format(customTime.TimeNow(), config.GetConfig().TimeFormat()))
+	dst = append(dst, ',')
+	dst = config.AppendField(dst, defaultFields[enum.DefaultLogKeyLevel], level.String())
+	dst = append(dst, ',')
+	dst = config.AppendField(dst, defaultFields[enum.DefaultLogKeyMessage], message)
+
+	for _, field := range fields {
+		key := string(field.Key)
 		if _, ok := defaultFields[enum.DefaultLogKey(field.Key)]; ok {
-			field.Key = model.LogAttrKey(config.DefaultPrefix) + field.Key
+			// why: user-supplied key collides with a reserved default key;
+			// prefix it so the reserved key is never shadowed. D-8.
+			key = config.DefaultPrefix + key
 		}
-		data[3+j] = config.ParseLogField(string(field.Key), field.Value)
+		dst = append(dst, ',')
+		dst = config.AppendField(dst, key, field.Value)
 	}
-	for j, d := range ctxData {
-		data[3+len(fields)+j] = d
+
+	// why: ctxData is still []string from setLogContextFields (a separate
+	// refactor out of scope for Story 018). Each string is already a rendered
+	// "key":value fragment; we just need to append it with a leading comma.
+	for _, d := range ctxData {
+		dst = append(dst, ',')
+		dst = append(dst, d...)
 	}
+
 	if err != nil {
-		data = append(data, config.ParseLogField(defaultFields[enum.DefaultLogKeyError], err.Error()))
+		dst = append(dst, ',')
+		dst = config.AppendField(dst, defaultFields[enum.DefaultLogKeyError], err.Error())
 	}
 	if e.caller != nil {
-		data = append(data, config.ParseLogField(defaultFields[enum.DefaultLogKeyCaller], e.caller.Function))
+		dst = append(dst, ',')
+		dst = config.AppendField(dst, defaultFields[enum.DefaultLogKeyCaller], e.caller.Function)
 	}
-	str := strings.Join(data, ", ")
-	if config.GetConfig().StaticFields() != "" {
-		str += ", " + config.GetConfig().StaticFields()
+	if sf := config.GetConfig().StaticFields(); sf != "" {
+		dst = append(dst, ',')
+		dst = append(dst, sf...)
 	}
 
 	en := config.GetConfig().Encoder()
-	byteData := en.Append(nil, []byte(str))
+	byteData := en.Append(nil, dst)
 	config.PublishLog(level, byteData)
 
 	e.Put()
