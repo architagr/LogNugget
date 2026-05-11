@@ -143,7 +143,9 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 		}
 	}
 
-	defaultFields := config.GetConfig().DefaultFields()
+	cfg := config.GetConfig()
+	defaultFields := cfg.DefaultFields()
+	rendered := cfg.DefaultFieldsRendered()
 	ctxData := e.setLogContextFields(ctx)
 
 	// why: pre-allocate 256 bytes so the three mandatory fields (time, level,
@@ -151,11 +153,21 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 	// path. 256 is a heuristic covering ~80% of real-world log lines; the
 	// slice grows automatically for larger payloads. D-16 / Story 018.
 	dst := make([]byte, 0, 256)
-	dst = config.AppendField(dst, defaultFields[enum.DefaultLogKeyTime], customTime.Format(customTime.TimeNow(), config.GetConfig().TimeFormat()))
+
+	// why: append the pre-rendered `"key":` prefix bytes directly instead of
+	// calling AppendField, which would re-encode the key string on every call.
+	// buildRenderedFields pre-computes these at init and on SetDefaultFields so
+	// the hot path performs zero extra allocations for the three mandatory
+	// fields (ARCH-6 / LLD §6.5). AppendQuotedString handles RFC 8259 escaping
+	// of the value without the key-encoding overhead.
+	dst = append(dst, rendered[enum.DefaultLogKeyTime]...)
+	dst = config.AppendQuotedString(dst, customTime.Format(customTime.TimeNow(), cfg.TimeFormat()))
 	dst = append(dst, ',')
-	dst = config.AppendField(dst, defaultFields[enum.DefaultLogKeyLevel], level.String())
+	dst = append(dst, rendered[enum.DefaultLogKeyLevel]...)
+	dst = config.AppendQuotedString(dst, level.String())
 	dst = append(dst, ',')
-	dst = config.AppendField(dst, defaultFields[enum.DefaultLogKeyMessage], message)
+	dst = append(dst, rendered[enum.DefaultLogKeyMessage]...)
+	dst = config.AppendQuotedString(dst, message)
 
 	for _, field := range fields {
 		key := string(field.Key)
@@ -178,18 +190,20 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 
 	if err != nil {
 		dst = append(dst, ',')
-		dst = config.AppendField(dst, defaultFields[enum.DefaultLogKeyError], err.Error())
+		dst = append(dst, rendered[enum.DefaultLogKeyError]...)
+		dst = config.AppendQuotedString(dst, err.Error())
 	}
 	if e.caller != nil {
 		dst = append(dst, ',')
-		dst = config.AppendField(dst, defaultFields[enum.DefaultLogKeyCaller], e.caller.Function)
+		dst = append(dst, rendered[enum.DefaultLogKeyCaller]...)
+		dst = config.AppendQuotedString(dst, e.caller.Function)
 	}
-	if sf := config.GetConfig().StaticFields(); sf != "" {
+	if sf := cfg.StaticFields(); sf != "" {
 		dst = append(dst, ',')
 		dst = append(dst, sf...)
 	}
 
-	en := config.GetConfig().Encoder()
+	en := cfg.Encoder()
 	byteData := en.Append(nil, dst)
 	config.PublishLog(level, byteData)
 
