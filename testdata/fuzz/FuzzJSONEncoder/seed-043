@@ -1,0 +1,3 @@
+go test fuzz v1
+string("trace")
+string("panic: nil pointer\n\tgoroutine 1 [running]")
