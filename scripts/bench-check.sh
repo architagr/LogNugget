@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Performance gate for the sub-5ms SLO.
+# Performance gate for the sub-1µs SLO.
 # - Runs all package benchmarks.
-# - Fails if any benchmark mean exceeds the latency budget (default 5,000,000 ns/op = 5 ms).
+# - Fails if any benchmark mean exceeds the latency budget (default 1,000 ns/op = 1 µs).
 # - Fails on a statistically significant regression vs ./bench-baseline.txt (requires `benchstat`).
 #
 # Usage:
@@ -9,12 +9,12 @@
 #   ./scripts/bench-check.sh --update-baseline  # accept current numbers as the new baseline (Project Lead only)
 #
 # Env:
-#   BENCH_THRESHOLD_NS   override the per-benchmark hard ceiling (ns/op). Default 5000000.
+#   BENCH_THRESHOLD_NS   override the per-benchmark hard ceiling (ns/op). Default 1000.
 #   BENCH_PACKAGES       override the package selector. Default './...'.
 
 set -euo pipefail
 
-THRESHOLD_NS="${BENCH_THRESHOLD_NS:-5000000}"
+THRESHOLD_NS="${BENCH_THRESHOLD_NS:-1000}"
 PACKAGES="${BENCH_PACKAGES:-./...}"
 BASELINE_FILE="bench-baseline.txt"
 NEW_FILE="$(mktemp -t bench-new.XXXXXX)"
@@ -38,7 +38,7 @@ if [ "${1:-}" = "--update-baseline" ]; then
   exit 0
 fi
 
-echo "bench-check: running benchmarks (threshold ${THRESHOLD_NS} ns/op = $((THRESHOLD_NS/1000000)) ms)"
+echo "bench-check: running benchmarks (threshold ${THRESHOLD_NS} ns/op = $(echo "scale=3; $THRESHOLD_NS/1000" | bc) µs)"
 go test -bench=. -benchmem -count=10 -run='^$' "$PACKAGES" | tee "$NEW_FILE"
 
 # Latency hard ceiling check.
@@ -59,7 +59,7 @@ if [ -n "$violations" ]; then
   echo "" >&2
   echo "Remediation options:" >&2
   echo "  1. Optimize the path (algorithm, allocations, query plan)." >&2
-  echo "  2. Add a cache (Redis cross-instance, in-memory LRU single-instance)." >&2
+  echo "  2. Reduce allocations (pooled buffers, escape-precomputation, sync.Pool)." >&2
   echo "  3. Reduce work in the request path (async, batch, precompute)." >&2
   exit 1
 fi

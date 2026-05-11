@@ -8,7 +8,7 @@ import (
 )
 
 // Test_DefaultEncoderFactory_KnownTypes covers TS-15: JSON and Text
-// resolve to non-nil encoders that honor the F7 Write contract.
+// resolve to non-nil encoders that honor the Append contract.
 func Test_DefaultEncoderFactory_KnownTypes(t *testing.T) {
 	t.Parallel()
 
@@ -17,8 +17,8 @@ func Test_DefaultEncoderFactory_KnownTypes(t *testing.T) {
 		in   enum.LogEncodeType
 		want string
 	}{
-		{"json wraps", enum.EncoderJSON, "{a:1}"},
-		{"text passthrough", enum.EncoderText, "a:1"},
+		{"json wraps", enum.EncoderJSON, "{a:1}\n"},
+		{"text passthrough", enum.EncoderText, "a:1\n"},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -31,10 +31,7 @@ func Test_DefaultEncoderFactory_KnownTypes(t *testing.T) {
 			if enc == nil {
 				t.Fatal("factory returned nil encoder")
 			}
-			out, err := enc.Write("a:1")
-			if err != nil {
-				t.Fatalf("write err: %v", err)
-			}
+			out := enc.Append(nil, []byte("a:1"))
 			if string(out) != tc.want {
 				t.Fatalf("got %q want %q", string(out), tc.want)
 			}

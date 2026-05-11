@@ -23,17 +23,14 @@ func Test_JSONEncoder_NoEmbeddedNilEncoder(t *testing.T) {
 	}
 }
 
-// Test_JSONEncoder_Write_WrapsInBraces locks the externally observable
-// behavior: F7 contract Write(string) ([]byte, error) returns "{<in>}".
-func Test_JSONEncoder_Write_WrapsInBraces(t *testing.T) {
+// Test_JSONEncoder_Append_WrapsInBraces locks the externally observable
+// behavior: Append returns `{<in>}\n`.
+func Test_JSONEncoder_Append_WrapsInBraces(t *testing.T) {
 	t.Parallel()
 
 	enc := NewJSONEncoder()
-	got, err := enc.Write("key:value")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(got) != "{key:value}" {
-		t.Fatalf("got %q, want %q", string(got), "{key:value}")
+	got := enc.Append(nil, []byte("key:value"))
+	if string(got) != "{key:value}\n" {
+		t.Fatalf("got %q, want %q", string(got), "{key:value}\n")
 	}
 }

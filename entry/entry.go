@@ -117,7 +117,7 @@ func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string,
 // stack depth) without exposing that parameter on the public API.
 func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message string, err error, skip int, fields ...model.LogAttr) {
 	// why: level gate runs BEFORE EventPreProcessors check and before any
-	// allocation (make, strings.Join, encoder.Write). A filtered call must
+	// allocation (make, strings.Join, encoder.Append). A filtered call must
 	// spend zero heap allocations. D-13 / TS-05.
 	if config.GetConfig().MinLevel() > level {
 		e.Put()
@@ -175,7 +175,7 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 	}
 
 	en := config.GetConfig().Encoder()
-	byteData, _ := en.Write(str)
+	byteData := en.Append(nil, []byte(str))
 	config.PublishLog(level, byteData)
 
 	e.Put()

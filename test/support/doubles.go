@@ -151,9 +151,9 @@ func (s *StubStaticParser) Evaluations() int {
 	return s.evaluations
 }
 
-// StubEncoder implements encoder.Encoder with a passthrough Write that
-// returns the body verbatim and records every call. Isolates pipeline
-// tests from real-encoder churn (F10).
+// StubEncoder implements encoder.Encoder with a passthrough Append that
+// appends body verbatim (plus newline) and records every call body. Isolates
+// pipeline tests from real-encoder churn (F10).
 type StubEncoder struct {
 	mu    sync.Mutex
 	calls []string
@@ -162,15 +162,20 @@ type StubEncoder struct {
 // NewStubEncoder returns a zero-state StubEncoder.
 func NewStubEncoder() *StubEncoder { return &StubEncoder{} }
 
-// Write records body and returns it as raw bytes; never errors.
-func (s *StubEncoder) Write(body string) ([]byte, error) {
+// Append records body as a string, appends body+newline to dst, and returns
+// the extended slice.
+func (s *StubEncoder) Append(dst, body []byte) []byte {
 	s.mu.Lock()
-	s.calls = append(s.calls, body)
+	s.calls = append(s.calls, string(body))
 	s.mu.Unlock()
-	return []byte(body), nil
+	dst = append(dst, body...)
+	return append(dst, '\n')
 }
 
-// Calls returns the recorded Write inputs in call order.
+// Name returns "stub".
+func (s *StubEncoder) Name() string { return "stub" }
+
+// Calls returns the recorded Append body inputs in call order.
 func (s *StubEncoder) Calls() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

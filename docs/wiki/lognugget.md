@@ -24,7 +24,7 @@ LogNugget is a Go logging library (not a service) that fixes all three by:
 ## 2. Goals
 
 - G1. Provide an idiomatic Go logging API (`Debug/Info/Warn/Error/Fatal/Panic`) that is **non-blocking on the caller's goroutine** with respect to IO.
-- G2. Hot-path call (`entry.Info(ctx, msg, fields...)`) returns to the caller in **< 1 ms p99** under realistic field volumes (≤ 16 fields per event). This matches the project-wide SLO declared in `CLAUDE.md`.
+- G2. Hot-path call (`entry.Info(ctx, msg, fields...)`) returns to the caller in **< 1 µs p99** under realistic field volumes (≤ 16 fields per event). This matches the project-wide SLO declared in `CLAUDE.md`.
 - G3. Drive steady-state allocations on the hot path toward zero via `sync.Pool` reuse of `LogEntry` and pre-sized buffers.
 - G4. First-class structured context: a single `SetContextFieldsParser` registration extracts trace/span/request/user IDs on every log call without per-call boilerplate.
 - G5. Pluggable output via **hooks** (per-level and `LevelUnSet` = all levels) so consumers can fan out to ELK, Loki, Datadog, or arbitrary `io.Writer` sinks.
@@ -42,7 +42,7 @@ The following are explicitly **out of scope for v1**; the README's "Future Enhan
 - N3. **JSON parsing/filtering of high-volume log streams.** v1 emits logs; it does not consume them.
 - N4. **Sampling / rate limiting** of log events. Caller must drop noisy logs at call sites.
 - N5. **Dynamic reconfiguration at runtime.** Configuration is set during `init()` / startup. Mutating configuration after the first log is emitted is undefined behavior in v1.
-- N6. **Multiple independent logger instances.** The README example shows `lognugget.NewLogger()` returning an instance; the **current code uses a process-wide singleton** (`config.defaultConfig`, `pipelineStage.EventPreProcessorObj`, package-level `entryPool`). v1 ships the singleton design. *Decision: singleton in v1. Rationale: it matches the existing implementation, keeps the < 1 ms hot-path simpler (no per-instance pointer chasing), and is sufficient for the canonical use case (one logger per process). Multi-instance is a v2 concern.*
+- N6. **Multiple independent logger instances.** The README example shows `lognugget.NewLogger()` returning an instance; the **current code uses a process-wide singleton** (`config.defaultConfig`, `pipelineStage.EventPreProcessorObj`, package-level `entryPool`). v1 ships the singleton design. *Decision: singleton in v1. Rationale: it matches the existing implementation, keeps the < 1 µs hot-path simpler (no per-instance pointer chasing), and is sufficient for the canonical use case (one logger per process). Multi-instance is a v2 concern.*
 - N7. **A service / daemon / HTTP API.** LogNugget is a Go library imported as a module dependency. The `cmd`-shaped `logger.go` at the repo root is a demo harness, not a deliverable.
 
 ---
@@ -117,7 +117,7 @@ pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, lokiHook) // fi
 
 `LevelUnSet` semantics: hooks registered against `LevelUnSet` receive **every** event regardless of level. Hooks registered against a specific level receive only events at that exact level. *Decision: this matches the current `pre_processing_stage.go` behavior (`publish(logMsg, e.hooks[enum.LevelUnSet]); publish(logMsg, e.hooks[level])`). Rationale: the code is canonical; the README's "default collector" maps to the consumer registering an `unsetLogEventPostProcessor` against `LevelUnSet`, which is exactly what `logger.go` demonstrates.*
 
-Hooks run **synchronously inside the dispatcher goroutine**, not the caller goroutine — they do not affect the < 1 ms hot-path budget, but a slow hook will backpressure the channel. *Decision: v1 documents that hook implementations must be fast and non-blocking, or must internally fan out to their own goroutines. Rationale: simplest contract; matches current code; per-hook isolation can come in v2.*
+Hooks run **synchronously inside the dispatcher goroutine**, not the caller goroutine — they do not affect the < 1 µs hot-path budget, but a slow hook will backpressure the channel. *Decision: v1 documents that hook implementations must be fast and non-blocking, or must internally fan out to their own goroutines. Rationale: simplest contract; matches current code; per-hook isolation can come in v2.*
 
 ### 5.5 Context-field extraction (trace / span / request IDs)
 
@@ -205,8 +205,8 @@ Notation: **MUST** = v1 blocker, **SHOULD** = v1 target, **COULD** = v1 stretch.
 
 ### 7.1 Performance (the hard SLO)
 
-- NF1 (MUST). **`LogEntry.Log` returns to caller in < 1 ms p99.** This is the project-wide SLO from `CLAUDE.md` and the canonical LogNugget performance budget. The hot path is the call returning to the caller, **not** IO flush completion (flushing is async/batched and excluded from the budget by design).
-- NF2 (MUST). A `*_bench_test.go` benchmarks the hot path end-to-end with `b.ReportAllocs()` enabled, per `CLAUDE.md` Performance Gate. `test/benchmark/entry_benchmark_test.go` is the existing harness; its current best is ~1246 ns/op @ ~25 allocs/op, well within budget. v1 must keep that under 1,000,000 ns/op even after the changes called out in F10 (spec-compliant JSON), F17 (source capture), F28 (RFC3339 default).
+- NF1 (MUST). **`LogEntry.Log` returns to caller in < 1 µs p99.** This is the project-wide SLO from `CLAUDE.md` and the canonical LogNugget performance budget. The hot path is the call returning to the caller, **not** IO flush completion (flushing is async/batched and excluded from the budget by design).
+- NF2 (MUST). A `*_bench_test.go` benchmarks the hot path end-to-end with `b.ReportAllocs()` enabled, per `CLAUDE.md` Performance Gate. `test/benchmark/entry_benchmark_test.go` is the existing harness; its current best is ~1246 ns/op @ ~25 allocs/op. v1 must bring that under 1,000 ns/op (1 µs) by the time Epic C pool-reuse work lands; F10 (JSON escaping), F17 (source capture), and F28 (RFC3339) must not regress further.
 - NF3 (MUST). Allocations on the hot path target ≤ 30 allocs/op steady-state. New work added in v1 (real source capture, real JSON escaping) must not regress the existing baseline by more than the benchstat-significance threshold; otherwise the code path must be optimized (pooled buffers, escape-precomputation) until it does not.
 - NF4 (MUST). The build gate `./.claude/scripts/bench-check.sh` blocks merges that exceed the budget or regress baseline. No exceptions.
 
@@ -242,7 +242,7 @@ Notation: **MUST** = v1 blocker, **SHOULD** = v1 target, **COULD** = v1 stretch.
 A v1 release is successful when **all** of the following are true:
 
 - SC1. `entry.NewLogEntry().Info(ctx, "msg")` against zero-config defaults produces a valid JSON log line on `os.Stdout` ending with `\n`.
-- SC2. Hot-path benchmark `Benchmark_Log` passes `./.claude/scripts/bench-check.sh` (mean ns/op < 1,000,000; no benchstat-significant regression vs `bench-baseline.txt`).
+- SC2. Hot-path benchmark `Benchmark_Log` passes `./scripts/bench-check.sh` (mean ns/op < 1,000 = 1 µs; no benchstat-significant regression vs `bench-baseline.txt`).
 - SC3. Source capture (F17) is implemented and emits the call-site function name when `addSource=true`.
 - SC4. JSON output (F10) is RFC 8259 conformant and accepted by `encoding/json.Unmarshal` round-trip on a sample of 1,000 events covering string, int, float, error, nested-context, unicode, and embedded-quote inputs.
 - SC5. `Stop()` (F30) drains all queued events on graceful shutdown; an integration test asserts no event loss for ≤ `maxBufferSize * 2` events queued at the moment of `Stop()`.
@@ -277,7 +277,7 @@ A v1 release is successful when **all** of the following are true:
 This Wiki is final input for the **Delivery Manager**. The Delivery Manager will translate it into a PRD; the Architect will then produce LLD + Epics + Stories directly (no HLD step).
 
 Key carry-forwards the Architect must respect:
-- The hot-path < 1 ms p99 SLO is non-negotiable and gated by `bench-check.sh`.
+- The hot-path < 1 µs p99 SLO is non-negotiable and gated by `bench-check.sh`.
 - Three concrete behavior gaps in current code that v1 must close: (a) wire `runtime.Caller` into `LogEntry.caller` (F17), (b) replace the JSON encoder with a spec-compliant implementation (F10), (c) change `DefaultTimeFormat` to `time.RFC3339` (F28).
 - `logger.go` at the repo root is a Gin-based demo, not the library entry point. v1 work should move it to `examples/` or `cmd/demo/` so the library module surface is clean.
 - Singleton design is intentional for v1 (N6).
