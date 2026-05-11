@@ -9,14 +9,14 @@
 ## Overall Progress
 
 ```
-18 / 40 stories complete  (45%)
-██████████████████░░░░░░░░░░░░░░░░░░░░░░  45%
+21 / 40 stories complete  (52%)
+█████████████████████░░░░░░░░░░░░░░░░░░░  52%
 ```
 
 | Epic | Done | Total | % |
 |------|------|-------|---|
 | A — Hygiene & Test Foundation | 13 | 13 | ✅ 100% |
-| B — Behavior-Gap Fixes | 5 | 12 | 🔄 42% |
+| B — Behavior-Gap Fixes | 8 | 12 | 🔄 67% |
 | C — Alloc Discipline | 0 | 5 | ⏳ 0% |
 | D — Lifecycle (Stop/Shutdown) | 0 | 6 | ⏳ 0% |
 | E — Release | 0 | 4 | ⏳ 0% |
@@ -114,12 +114,12 @@ Benchmark_Log  ·  Apple M1 Pro  ·  go test -bench=. -count=10
 | 014 | #26 | Fix D-8 collision-set + SC7 | 001 | ✅ MERGED |
 | 013 | #25 | Fix D-1 source capture (F17) | 012 | ✅ MERGED |
 | 015 | #27 | ARCH-2 encoder iface Append | 008 | ✅ MERGED |
-| 016 | #28 | Fix D-2 JSON RFC8259 escape | 015 | ⏳ PENDING |
+| 016 | #28 | Fix D-2 JSON RFC8259 escape | 015 | ✅ MERGED |
 | 017 | #29 | Fix D-5 strconv ParseLogField | 016 | ⏳ PENDING |
 | 018 | #30 | Fix D-16 separator via AppendField | 017 | ⏳ PENDING |
 | 019 | #31 | ARCH-6 pre-render default-key prefix | 014, 017 | ⏳ PENDING |
-| 020 | #32 | Fix D-10 factory error variant | 008, 015 | ⏳ PENDING |
-| 033 | #33 | TS-13+TS-14 static + context parsers | 002 | ⏳ PENDING |
+| 020 | #32 | Fix D-10 factory error variant | 008, 015 | ✅ MERGED |
+| 033 | #33 | TS-13+TS-14 static + context parsers | 002 | ✅ MERGED |
 | 034 | #34 | TS-17 FuzzJSONEncoder | 003, 016 | ⏳ PENDING |
 
 ---
