@@ -9,6 +9,20 @@ import (
 	"unicode/utf8"
 )
 
+// AppendQuotedString appends s to dst as an RFC 8259 JSON string (including the
+// surrounding double-quote characters) and returns the extended slice. dst may
+// be nil; a new slice is allocated in that case.
+//
+// This is the exported companion of the package-internal appendJSONString.  It
+// lets packages outside config (specifically entry) append a quoted value onto
+// a pre-rendered key prefix without having to duplicate the escape logic or
+// import a cycle.
+//
+// Safe for concurrent use; reads no shared state.
+func AppendQuotedString(dst []byte, s string) []byte {
+	return appendJSONString(dst, []byte(s))
+}
+
 // appendJSONString appends src to dst as an RFC 8259 JSON string (including the
 // surrounding double-quote characters). Invalid UTF-8 bytes are replaced with
 // the Unicode replacement character (U+FFFD).

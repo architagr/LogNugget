@@ -49,18 +49,19 @@ func init() {
 }
 
 type Config struct {
-	minLevel           enum.LogLevel                 // Minimum log level to log
-	encoderType        enum.LogEncodeType            // Encoder type to use for logging
-	encoderObj         encoder.Encoder               // encoder for the data
-	addSource          bool                          // Whether to add source information to logs
-	output             io.Writer                     // Output writer for logs
-	logBufferMaxSize   int                           // max Buffer size for logs
-	rate               time.Duration                 // Rate to push logs to output
-	parsedStaticFields string                        // this is the satic fields
-	contextParser      ContextFieldsParser           // Function to extract context fields
-	defaultFields      map[enum.DefaultLogKey]string // Default fields to log with every entry
-	timeFormat         string                        // Time format for log entries
-	hooks              map[enum.LogLevel]map[string]PublishLogMessageHookContract
+	minLevel              enum.LogLevel                      // Minimum log level to log
+	encoderType           enum.LogEncodeType                 // Encoder type to use for logging
+	encoderObj            encoder.Encoder                    // encoder for the data
+	addSource             bool                               // Whether to add source information to logs
+	output                io.Writer                          // Output writer for logs
+	logBufferMaxSize      int                                // max Buffer size for logs
+	rate                  time.Duration                      // Rate to push logs to output
+	parsedStaticFields    string                             // this is the satic fields
+	contextParser         ContextFieldsParser                // Function to extract context fields
+	defaultFields         map[enum.DefaultLogKey]string      // Default fields to log with every entry
+	defaultFieldsRendered map[enum.DefaultLogKey][]byte      // pre-rendered `"key":` prefix bytes; populated by buildRenderedFields
+	timeFormat            string                             // Time format for log entries
+	hooks                 map[enum.LogLevel]map[string]PublishLogMessageHookContract
 }
 
 type LogEvent struct {
@@ -246,6 +247,32 @@ func buildRestrictedSet(fields map[enum.DefaultLogKey]string) map[string]struct{
 	return set
 }
 
+// buildRenderedFields constructs a new map of pre-rendered JSON key prefixes of
+// the form `"name":` for every key in fields. The resulting []byte slices are
+// ready to append directly before a JSON value, eliminating the per-call
+// string→[]byte conversion that AppendField performs when building the key.
+//
+// Must be called while the caller holds configMu (write) — it constructs a
+// fresh map; no existing map is mutated.
+//
+// why: pre-rendering the three mandatory fields (time, level, message) once at
+// init and again on SetDefaultFields removes the repeated allocation of
+// `[]byte(key)` in AppendField's appendJSONString call. Each pre-rendered
+// prefix is a single heap object allocated at configuration time, never on
+// the hot log path (ARCH-6 / LLD §6.5 / ~80 ns per-event saving target).
+func buildRenderedFields(fields map[enum.DefaultLogKey]string) map[enum.DefaultLogKey][]byte {
+	rendered := make(map[enum.DefaultLogKey][]byte, len(fields))
+	for k, name := range fields {
+		// Build `"name":` — the key prefix an appender concatenates with the value.
+		b := make([]byte, 0, len(name)+3)
+		b = append(b, '"')
+		b = append(b, name...)
+		b = append(b, '"', ':')
+		rendered[k] = b
+	}
+	return rendered
+}
+
 // ValidateandParseLogField checks whether key collides with a restricted log
 // field name and, if so, prepends DefaultPrefix ("custom.") before delegating
 // to ParseLogField. The restricted-field lookup is O(1) via map membership.
@@ -353,6 +380,12 @@ func SetDefaultFields(fields map[enum.DefaultLogKey]string) {
 		defaultConfig.defaultFields[key] = value
 	}
 	restrictedFieldsSet = buildRestrictedSet(defaultConfig.defaultFields)
+	// why: rebuild the pre-rendered prefix cache so that the hot path in
+	// entry.logWithSkip immediately sees the new `"newname":` bytes without
+	// incurring any per-call allocation. Both caches must be rebuilt together
+	// under the same write lock to keep restrictedFieldsSet and
+	// defaultFieldsRendered consistent (ARCH-6 / acceptance criterion 3).
+	defaultConfig.defaultFieldsRendered = buildRenderedFields(defaultConfig.defaultFields)
 }
 
 // GetConfig returns a pointer to the current logger configuration.
@@ -458,6 +491,11 @@ func resetConfig() {
 			enum.DefaultLogKeyCustom:        string(enum.DefaultLogKeyCustom),
 		},
 	}
+	// why: buildRenderedFields is called before the lock so the allocation cost
+	// stays outside the critical section, consistent with the pattern used for
+	// encoderObj above.  The result is safe to store in newCfg because newCfg
+	// is not yet visible to any other goroutine at this point.
+	newCfg.defaultFieldsRendered = buildRenderedFields(newCfg.defaultFields)
 
 	configMu.Lock()
 	ch = newCh
@@ -549,6 +587,22 @@ func (c *Config) DefaultFields() map[enum.DefaultLogKey]string {
 	configMu.RLock()
 	defer configMu.RUnlock()
 	return c.defaultFields
+}
+
+// DefaultFieldsRendered returns the pre-rendered JSON key-prefix map. Each
+// entry maps a DefaultLogKey to the bytes `"name":` ready to append directly
+// before a quoted JSON value, eliminating the per-call string→[]byte
+// conversion that AppendField performs when rendering the key.
+//
+// The map is populated by buildRenderedFields when resetConfig runs (at init
+// and in test resets) and rebuilt atomically under the write lock whenever
+// SetDefaultFields is called. Callers must not modify the returned map.
+//
+// Safe for concurrent use.
+func (c *Config) DefaultFieldsRendered() map[enum.DefaultLogKey][]byte {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return c.defaultFieldsRendered
 }
 
 // TimeFormat returns the time format string. Safe for concurrent use.
