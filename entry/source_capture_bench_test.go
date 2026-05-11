@@ -13,7 +13,7 @@ import (
 
 // Benchmark_Log_AddSourceTrue measures the hot path through entry.Log when
 // addSource=true. Input shape: single Info call with no extra fields, addSource
-// enabled. Budget: 250 ns mean (bench gate ceiling is < 5 ms; this is far below).
+// enabled. Budget: 250 ns mean (bench gate ceiling is < 1 µs = 1,000 ns/op).
 //
 // why: runtime.Caller adds one frame-lookup per log call. This benchmark
 // validates that the overhead remains negligible relative to the gate.
