@@ -146,22 +146,18 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 
 	defaultFields := config.GetConfig().DefaultFields()
 	ctxData := e.setLogContextFields(ctx)
-	data := make([]string, 3+len(fields)+len(ctxData), len(fields)+5)
-	i := 0
-	data[i] = config.ParseLogField(defaultFields[enum.DefaultLogKeyTime], customTime.Format(customTime.TimeNow(), config.GetConfig().TimeFormat()))
-	data[i+1] = config.ParseLogField(defaultFields[enum.DefaultLogKeyLevel], level.String())
-	data[i+2] = config.ParseLogField(defaultFields[enum.DefaultLogKeyMessage], message)
-	i += 2
-	for _, field := range fields {
+	data := make([]string, 3+len(fields)+len(ctxData))
+	data[0] = config.ParseLogField(defaultFields[enum.DefaultLogKeyTime], customTime.Format(customTime.TimeNow(), config.GetConfig().TimeFormat()))
+	data[1] = config.ParseLogField(defaultFields[enum.DefaultLogKeyLevel], level.String())
+	data[2] = config.ParseLogField(defaultFields[enum.DefaultLogKeyMessage], message)
+	for j, field := range fields {
 		if _, ok := defaultFields[enum.DefaultLogKey(field.Key)]; ok {
 			field.Key = model.LogAttrKey(config.DefaultPrefix) + field.Key
 		}
-		i++
-		data[i] = config.ParseLogField(string(field.Key), field.Value)
+		data[3+j] = config.ParseLogField(string(field.Key), field.Value)
 	}
-
-	for x, d := range ctxData {
-		data[i+x] = d
+	for j, d := range ctxData {
+		data[3+len(fields)+j] = d
 	}
 	if err != nil {
 		data = append(data, config.ParseLogField(defaultFields[enum.DefaultLogKeyError], err.Error()))
