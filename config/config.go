@@ -146,10 +146,10 @@ func SetEncoderType(encoderType enum.LogEncodeType) {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	defaultConfig.encoderObj, err = encoder.DefaultEncoderFactory(encoderType)
+	defaultConfig.encoderObj, err = encoder.DefaultEncoderFactoryE(encoderType)
 	if err != nil {
 		encoderType = enum.EncoderJSON
-		defaultConfig.encoderObj, _ = encoder.DefaultEncoderFactory(encoderType)
+		defaultConfig.encoderObj = encoder.DefaultEncoderFactory(encoderType)
 	}
 
 	defaultConfig.encoderType = encoderType
@@ -415,7 +415,7 @@ func resetConfig() {
 	// Build the new config and channel before acquiring the lock to
 	// minimise lock-hold time — encoder factory can take allocations.
 	newCh := make(chan LogEvent, 10)
-	encoderObj, _ := encoder.DefaultEncoderFactory(enum.EncoderJSON)
+	encoderObj := encoder.DefaultEncoderFactory(enum.EncoderJSON)
 	newCfg := &Config{
 		minLevel:           DafaultLevel,
 		encoderType:        DafaultEncoderType,

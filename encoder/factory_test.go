@@ -7,8 +7,6 @@ import (
 	"github.com/architagr/lognugget/enum"
 )
 
-// Test_DefaultEncoderFactory_KnownTypes covers TS-15: JSON and Text
-// resolve to non-nil encoders that honor the Append contract.
 func Test_DefaultEncoderFactory_KnownTypes(t *testing.T) {
 	t.Parallel()
 
@@ -24,10 +22,7 @@ func Test_DefaultEncoderFactory_KnownTypes(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			enc, err := DefaultEncoderFactory(tc.in)
-			if err != nil {
-				t.Fatalf("factory err: %v", err)
-			}
+			enc := DefaultEncoderFactory(tc.in)
 			if enc == nil {
 				t.Fatal("factory returned nil encoder")
 			}
@@ -39,18 +34,28 @@ func Test_DefaultEncoderFactory_KnownTypes(t *testing.T) {
 	}
 }
 
-// Test_DefaultEncoderFactory_UnknownReturnsErr covers TS-18 partial:
-// the current factory rejects unknown types with ErrUnsupportedEncoderType.
-// why: story 008 spec line references "fallback to JSON" (D-10 doc ack) but
-// the actual code surface returns an error. ARCH-2/policy change is out of
-// scope here; this test pins current behavior so a future fallback flip is
-// a deliberate, reviewed change.
-func Test_DefaultEncoderFactory_UnknownReturnsErr(t *testing.T) {
+// Test_DefaultEncoderFactory_GracefulFallback_DocCheck verifies that the
+// graceful variant returns a JSON encoder for unknown types (D-10 fallback).
+func Test_DefaultEncoderFactory_GracefulFallback_DocCheck(t *testing.T) {
 	t.Parallel()
 
-	enc, err := DefaultEncoderFactory(enum.LogEncodeType("bogus"))
-	if !errors.Is(err, ErrUnsupportedEncoderType) {
-		t.Fatalf("want ErrUnsupportedEncoderType, got %v", err)
+	enc := DefaultEncoderFactory(enum.LogEncodeType("bogus"))
+	if enc == nil {
+		t.Fatal("graceful factory must not return nil")
+	}
+	if enc.Name() != "json" {
+		t.Fatalf("graceful fallback must return JSON encoder, got %q", enc.Name())
+	}
+}
+
+// Test_DefaultEncoderFactoryE_UnknownType_ReturnsError verifies that the
+// error variant surfaces ErrUnknownEncoder for unrecognised types.
+func Test_DefaultEncoderFactoryE_UnknownType_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	enc, err := DefaultEncoderFactoryE(enum.LogEncodeType("bogus"))
+	if !errors.Is(err, ErrUnknownEncoder) {
+		t.Fatalf("want ErrUnknownEncoder, got %v", err)
 	}
 	if enc != nil {
 		t.Fatalf("want nil encoder on unknown, got %T", enc)

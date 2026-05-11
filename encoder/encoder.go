@@ -12,10 +12,9 @@ import (
 	"github.com/architagr/lognugget/enum"
 )
 
-// ErrUnsupportedEncoderType is returned by DefaultEncoderFactory when the
-// requested LogEncodeType is not recognised. Callers should use errors.Is to
-// detect it and fall back to a default encoder or abort initialisation.
-var ErrUnsupportedEncoderType = errors.New("unsupported encoder type")
+// ErrUnknownEncoder is returned by DefaultEncoderFactoryE when the requested
+// LogEncodeType is not recognised. Callers should use errors.Is to detect it.
+var ErrUnknownEncoder = errors.New("unknown encoder type")
 
 // Encoder formats a pre-rendered log body and appends it to dst.
 //
@@ -33,14 +32,25 @@ type Encoder interface {
 }
 
 // DefaultEncoderFactory returns the Encoder for the given LogEncodeType.
-// It returns ErrUnsupportedEncoderType for any type not explicitly handled.
-func DefaultEncoderFactory(encoderType enum.LogEncodeType) (Encoder, error) {
+// For unknown types it falls back to the JSON encoder.
+// Use DefaultEncoderFactoryE to surface an error instead.
+func DefaultEncoderFactory(encoderType enum.LogEncodeType) Encoder {
+	enc, err := DefaultEncoderFactoryE(encoderType)
+	if err != nil {
+		enc, _ = DefaultEncoderFactoryE(enum.EncoderJSON)
+	}
+	return enc
+}
+
+// DefaultEncoderFactoryE returns the Encoder for the given LogEncodeType.
+// It returns ErrUnknownEncoder for any type not explicitly handled.
+func DefaultEncoderFactoryE(encoderType enum.LogEncodeType) (Encoder, error) {
 	switch encoderType {
 	case enum.EncoderJSON:
 		return NewJSONEncoder(), nil
 	case enum.EncoderText:
 		return NewTextEncoder(), nil
 	default:
-		return nil, ErrUnsupportedEncoderType
+		return nil, ErrUnknownEncoder
 	}
 }
