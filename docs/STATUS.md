@@ -9,14 +9,14 @@
 ## Overall Progress
 
 ```
-16 / 40 stories complete  (40%)
-████████████████░░░░░░░░░░░░░░░░░░░░░░░░  40%
+18 / 40 stories complete  (45%)
+██████████████████░░░░░░░░░░░░░░░░░░░░░░  45%
 ```
 
 | Epic | Done | Total | % |
 |------|------|-------|---|
 | A — Hygiene & Test Foundation | 13 | 13 | ✅ 100% |
-| B — Behavior-Gap Fixes | 3 | 12 | 🔄 25% |
+| B — Behavior-Gap Fixes | 5 | 12 | 🔄 42% |
 | C — Alloc Discipline | 0 | 5 | ⏳ 0% |
 | D — Lifecycle (Stop/Shutdown) | 0 | 6 | ⏳ 0% |
 | E — Release | 0 | 4 | ⏳ 0% |
@@ -112,8 +112,8 @@ Benchmark_Log  ·  Apple M1 Pro  ·  go test -bench=. -count=10
 | 011 | #23 | Fix D-4 RFC3339 default | 001, 010 | ✅ MERGED |
 | 012 | #24 | Fix D-7+D-13 addSource off | 001, 010 | ✅ MERGED |
 | 014 | #26 | Fix D-8 collision-set + SC7 | 001 | ✅ MERGED |
-| 013 | #25 | Fix D-1 source capture (F17) | 012 | 🔄 DRAFT_PR [#69](https://github.com/architagr/LogNugget/pull/69) |
-| 015 | #27 | ARCH-2 encoder iface Append | 008 | 🔄 DRAFT_PR [#68](https://github.com/architagr/LogNugget/pull/68) |
+| 013 | #25 | Fix D-1 source capture (F17) | 012 | ✅ MERGED |
+| 015 | #27 | ARCH-2 encoder iface Append | 008 | ✅ MERGED |
 | 016 | #28 | Fix D-2 JSON RFC8259 escape | 015 | ⏳ PENDING |
 | 017 | #29 | Fix D-5 strconv ParseLogField | 016 | ⏳ PENDING |
 | 018 | #30 | Fix D-16 separator via AppendField | 017 | ⏳ PENDING |
