@@ -32,8 +32,8 @@ func init() {
 // LogEntry is not safe for concurrent use; each goroutine that needs to log
 // must obtain its own entry via NewLogEntry.
 type LogEntry struct {
-	// caller is the call-site frame appended to the log line when non-nil.
-	// TODO(#TODO-caller, archit): populate via runtime.Callers; currently unused.
+	// caller is the call-site frame appended to the log line when cfg.addSource
+	// is true. Populated lazily inside logWithSkip via runtime.Caller(skip).
 	caller *runtime.Frame
 }
 
@@ -79,6 +79,24 @@ func (e *LogEntry) Put() {
 	entryPool.Put(e)
 }
 
+// callerSkipDirect is the number of frames to skip when runtime.Caller is
+// invoked from inside logWithSkip and logWithSkip was called directly by the
+// public entry point (Log or a level method).
+//
+// Stack when user calls e.Info(ctx, msg):
+//   skip=0 → logWithSkip  (the function that called runtime.Caller)
+//   skip=1 → Info         (called logWithSkip)
+//   skip=2 → user code    <- the frame we want
+//
+// Stack when user calls e.Log(level, ctx, msg, nil):
+//   skip=0 → logWithSkip
+//   skip=1 → Log
+//   skip=2 → user code    <- the frame we want
+//
+// why: both Log and the level methods call logWithSkip directly, so the depth
+// to the user's frame is always 2. A single constant covers all public entry points.
+const callerSkipDirect = 2
+
 // Log assembles the structured log line from level, ctx, message, err, and
 // any extra fields, encodes it, and dispatches it through config.PublishLog.
 // It returns immediately if level is below the configured minimum (level gate
@@ -86,6 +104,18 @@ func (e *LogEntry) Put() {
 // The entry is returned to the pool before Log returns in all code paths,
 // including the early-return filtered path, to prevent pool depletion.
 func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string, err error, fields ...model.LogAttr) {
+	e.logWithSkip(level, ctx, message, err, callerSkipDirect, fields...)
+}
+
+// logWithSkip is the internal implementation of Log. The skip parameter is
+// forwarded directly to runtime.Caller so callers can adjust the reported
+// call-site frame. Use Log for external call sites and level methods for
+// convenience wrappers.
+//
+// why: a separate skip-aware implementation lets test helpers exercise the
+// ok=false path of runtime.Caller (by passing a skip value that exceeds the
+// stack depth) without exposing that parameter on the public API.
+func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message string, err error, skip int, fields ...model.LogAttr) {
 	// why: level gate runs BEFORE EventPreProcessors check and before any
 	// allocation (make, strings.Join, encoder.Append). A filtered call must
 	// spend zero heap allocations. D-13 / TS-05.
@@ -96,6 +126,22 @@ func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string,
 	if config.EventPreProcessors == nil {
 		e.Put()
 		return
+	}
+
+	// why: capture caller before any other work so that runtime.Caller sees
+	// the correct frame depth. D-1 / F17 / ARCH-3: use singular runtime.Caller,
+	// not runtime.Callers + CallersFrames.
+	if config.GetConfig().AddSource() {
+		if pc, _, _, ok := runtime.Caller(skip); ok {
+			fn := runtime.FuncForPC(pc)
+			frame := &runtime.Frame{}
+			if fn != nil {
+				frame.Function = fn.Name()
+			}
+			e.caller = frame
+		} else {
+			e.caller = &runtime.Frame{Function: "unknown"}
+		}
 	}
 
 	defaultFields := config.GetConfig().DefaultFields()
@@ -137,37 +183,36 @@ func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string,
 
 // Debug logs message at LevelDebug with optional extra fields.
 func (e *LogEntry) Debug(ctx context.Context, message string, fields ...model.LogAttr) {
-	e.Log(enum.LevelDebug, ctx, message, nil, fields...)
+	e.logWithSkip(enum.LevelDebug, ctx, message, nil, callerSkipDirect, fields...)
 }
 
 // Info logs message at LevelInfo with optional extra fields.
 func (e *LogEntry) Info(ctx context.Context, message string, fields ...model.LogAttr) {
-	e.Log(enum.LevelInfo, ctx, message, nil, fields...)
+	e.logWithSkip(enum.LevelInfo, ctx, message, nil, callerSkipDirect, fields...)
 }
 
 // Warn logs message at LevelWarn with optional extra fields.
 func (e *LogEntry) Warn(ctx context.Context, message string, fields ...model.LogAttr) {
-	e.Log(enum.LevelWarn, ctx, message, nil, fields...)
+	e.logWithSkip(enum.LevelWarn, ctx, message, nil, callerSkipDirect, fields...)
 }
 
 // Error logs message at LevelError, attaching err's string to the "error" field.
 // err may be nil; if nil, no error field is appended.
 func (e *LogEntry) Error(ctx context.Context, err error, message string, fields ...model.LogAttr) {
-	e.Log(enum.LevelError, ctx, message, err, fields...)
+	e.logWithSkip(enum.LevelError, ctx, message, err, callerSkipDirect, fields...)
 }
 
-// Fatal logs at LevelError (via Error) then calls runtime.Goexit to
-// terminate the calling goroutine. The log event is guaranteed to be
-// dispatched before Goexit fires.
+// Fatal logs at LevelError then calls runtime.Goexit to terminate the calling
+// goroutine. The log event is guaranteed to be dispatched before Goexit fires.
 func (e *LogEntry) Fatal(ctx context.Context, err error, message string, fields ...model.LogAttr) {
-	e.Error(ctx, err, message, fields...)
+	e.logWithSkip(enum.LevelError, ctx, message, err, callerSkipDirect, fields...)
 	runtime.Goexit()
 }
 
 // Panic logs at LevelError (via Error) then panics with err. The log event
 // is guaranteed to be dispatched before the panic propagates.
 func (e *LogEntry) Panic(ctx context.Context, err error, message string, fields ...model.LogAttr) {
-	e.Error(ctx, err, message, fields...)
+	e.logWithSkip(enum.LevelError, ctx, message, err, callerSkipDirect, fields...)
 	panic(err)
 }
 
