@@ -87,7 +87,7 @@ func (e *LogEntry) Put() {
 // including the early-return filtered path, to prevent pool depletion.
 func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string, err error, fields ...model.LogAttr) {
 	// why: level gate runs BEFORE EventPreProcessors check and before any
-	// allocation (make, strings.Join, encoder.Write). A filtered call must
+	// allocation (make, strings.Join, encoder.Append). A filtered call must
 	// spend zero heap allocations. D-13 / TS-05.
 	if config.GetConfig().MinLevel() > level {
 		e.Put()
@@ -129,7 +129,7 @@ func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string,
 	}
 
 	en := config.GetConfig().Encoder()
-	byteData, _ := en.Write(str)
+	byteData := en.Append(nil, []byte(str))
 	config.PublishLog(level, byteData)
 
 	e.Put()
