@@ -13,7 +13,6 @@ package config
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -265,27 +264,15 @@ func ValidateandParseLogField(key string, value any) string {
 }
 
 // ParseLogField serialises key and value into a JSON key-value fragment
-// (e.g. `"key": "value"`). It does not check for reserved-key collisions;
+// (e.g. `"key":value`). It does not check for reserved-key collisions;
 // callers that need collision detection should use ValidateandParseLogField
 // instead.
+//
+// Prefer AppendField(dst, key, value) for zero-copy incremental construction
+// of log lines. This wrapper is kept for the existing callers in entry.go;
+// story 018 will migrate those sites to AppendField directly.
 func ParseLogField(key string, value any) string {
-	sb := strings.Builder{}
-	sb.Grow(100 + len(key))
-	sb.WriteString("\"")
-	sb.WriteString(key)
-	sb.WriteString("\": \"")
-	switch value := value.(type) {
-	case string:
-		sb.WriteString(value)
-	case int, int16, int32, int64:
-		sb.WriteString(fmt.Sprintf("%d", value))
-	case float32, float64:
-		sb.WriteString(fmt.Sprintf("%f", value))
-	default:
-		sb.WriteString(fmt.Sprintf("%+v", value))
-	}
-	sb.WriteString("\"")
-	return sb.String()
+	return string(AppendField(nil, key, value))
 }
 
 // SetStaticEnvFieldsParser sets the function that extracts static
