@@ -466,6 +466,11 @@ func resetConfig() {
 		parsedStaticFields: "",
 		contextParser:      nil,
 		timeFormat:         DefaultTimeFormat,
+		// why: hooks must be initialised here so that RegisterHook does not
+		// panic with "assignment to entry in nil map". resetConfig is the only
+		// site that creates a new Config, so a nil hooks map after reset would
+		// make the first RegisterHook call fatal (discovered by TS-22 race tests).
+		hooks: make(map[enum.LogLevel]map[string]PublishLogMessageHookContract),
 		defaultFields: map[enum.DefaultLogKey]string{
 			enum.DefaultLogKeyTime:          string(enum.DefaultLogKeyTime),
 			enum.DefaultLogKeyLevel:         string(enum.DefaultLogKeyLevel),
