@@ -3,25 +3,12 @@ package entry
 import (
 	"context"
 	"runtime"
-	"sync"
 
 	"github.com/architagr/lognugget/config"
 	customTime "github.com/architagr/lognugget/custom_time"
 	"github.com/architagr/lognugget/enum"
 	"github.com/architagr/lognugget/model"
 )
-
-var (
-	entryPool sync.Pool
-)
-
-func init() {
-	entryPool = sync.Pool{
-		New: func() any {
-			return initLogEntry()
-		},
-	}
-}
 
 // LogEntry is a single structured-log event in flight. Callers obtain a
 // *LogEntry from NewLogEntry (pool-backed), invoke exactly one level method
@@ -55,19 +42,6 @@ func NewLogEntry() *LogEntry {
 	return e
 }
 
-// GenerateInitialPool pre-warms the internal sync.Pool with n ready-to-use
-// LogEntry instances. Call once at program startup to reduce allocation
-// pressure on the first burst of log calls.
-func GenerateInitialPool(n int) {
-	for i := 0; i < n; i++ {
-		entryPool.Put(initLogEntry())
-	}
-}
-
-func initLogEntry() *LogEntry {
-	return &LogEntry{buf: make([]byte, 0, initBufCap)}
-}
-
 // reset zeroes every field of LogEntry so that entries returned from the
 // sync.Pool carry no state from a previous caller.
 //
@@ -97,14 +71,16 @@ func (e *LogEntry) Put() {
 // public entry point (Log or a level method).
 //
 // Stack when user calls e.Info(ctx, msg):
-//   skip=0 → logWithSkip  (the function that called runtime.Caller)
-//   skip=1 → Info         (called logWithSkip)
-//   skip=2 → user code    <- the frame we want
+//
+//	skip=0 → logWithSkip  (the function that called runtime.Caller)
+//	skip=1 → Info         (called logWithSkip)
+//	skip=2 → user code    <- the frame we want
 //
 // Stack when user calls e.Log(level, ctx, msg, nil):
-//   skip=0 → logWithSkip
-//   skip=1 → Log
-//   skip=2 → user code    <- the frame we want
+//
+//	skip=0 → logWithSkip
+//	skip=1 → Log
+//	skip=2 → user code    <- the frame we want
 //
 // why: both Log and the level methods call logWithSkip directly, so the depth
 // to the user's frame is always 2. A single constant covers all public entry points.
