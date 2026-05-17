@@ -76,8 +76,9 @@ func (h *unsetLogEventPostProcessor) resetBucket() {
 }
 
 // flushLogMessages safely extracts the active bucket and writes it
-// asynchronously. In-flight goroutines are tracked by flushWg so that
-// Stop() can wait for them before closing doneCh.
+// asynchronously. Add(1) is called inside the lock so that the stop-path
+// drain (which also runs under the same lock) cannot see a zero flushWg
+// count after a swap has been committed but before the goroutine is registered.
 func (h *unsetLogEventPostProcessor) flushLogMessages() {
 	h.mu.Lock()
 	if len(h.activeBucket) == 0 {
@@ -86,9 +87,9 @@ func (h *unsetLogEventPostProcessor) flushLogMessages() {
 	}
 	backupBucket := h.activeBucket
 	h.resetBucket()
+	h.flushWg.Add(1)
 	h.mu.Unlock()
 
-	h.flushWg.Add(1)
 	go func() {
 		defer h.flushWg.Done()
 		h.printMessage(backupBucket)
@@ -121,18 +122,20 @@ func (h *unsetLogEventPostProcessor) PublishLogMessage(entry []byte) {
 	h.mu.Lock()
 	h.activeBucket = append(h.activeBucket, entry)
 	if len(h.activeBucket) >= h.maxBucketSize {
-		// why: capture the slice pointer and reset activeBucket while still
-		// holding the lock so no other goroutine can observe the old slice
-		// or append into it after we release.
+		// why: capture slice and Add(1) inside the lock so the stop drain
+		// (which also holds mu before calling flushWg.Wait) cannot observe a
+		// zero count after the swap has been committed.
 		toFlush = h.activeBucket
 		h.activeBucket = make([][]byte, 0, h.maxBucketSize)
+		h.flushWg.Add(1)
 	}
 	h.mu.Unlock()
 
 	if toFlush != nil {
-		// why: spawn asynchronously so PublishLogMessage never blocks the
-		// caller on I/O — same guarantee as the ticker-driven flush path.
-		go h.printMessage(toFlush)
+		go func() {
+			defer h.flushWg.Done()
+			h.printMessage(toFlush)
+		}()
 	}
 }
 

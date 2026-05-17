@@ -6,8 +6,6 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
-
-	"github.com/architagr/lognugget/config"
 )
 
 // nonZeroFrame returns a pointer to a runtime.Frame with at least one
@@ -33,7 +31,9 @@ const bufField = "buf"
 func Test_LogEntry_ResetExhaustive(t *testing.T) {
 	t.Parallel()
 
-	t.Cleanup(func() { config.TestResetConfig() })
+	// No config.TestResetConfig cleanup here: this test does not modify the
+	// config singleton, and registering a cleanup that resets it races with
+	// concurrent parallel tests that rely on the singleton (issue #54).
 
 	// Construct an entry directly (white-box: same package) and force all
 	// known fields to non-zero values so that a no-op reset() is caught.
