@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 540" font-family="monospace" font-size="12">
+  <defs>
+    <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#222"/>
+    </marker>
+    <style>
+      .pool{fill:#efe; stroke:#272; stroke-width:1.2;}
+      .live{fill:#eef; stroke:#225; stroke-width:1.2;}
+      .gc{fill:#fee; stroke:#a22; stroke-width:1.2;}
+      .ttl{font-size:14px; font-weight:bold;}
+      .lbl{fill:#222;}
+    </style>
+  </defs>
+
+  <text x="20" y="22" class="ttl">sync.Pool LogEntry lifecycle (Object Pool pattern, F25/F26/F27)</text>
+
+  <!-- Pool reservoir -->
+  <rect x="20" y="60" width="200" height="240" rx="6" class="pool"/>
+  <text x="30" y="82" class="ttl">sync.Pool reservoir</text>
+  <text x="30" y="104">P-local (per-P) +</text>
+  <text x="30" y="120">central pool</text>
+  <text x="30" y="142">GC clears half-</text>
+  <text x="30" y="158">populated victim cache</text>
+  <text x="30" y="180">GenerateInitialPool(n)</text>
+  <text x="30" y="196">warms up reservoir F4</text>
+  <text x="30" y="220">New() = initLogEntry()</text>
+  <text x="30" y="236">on miss only</text>
+  <text x="30" y="260">also pools (LLD adds):</text>
+  <text x="30" y="276">- []byte render buf F27</text>
+  <text x="30" y="292">- []string field slice</text>
+
+  <!-- States -->
+  <rect x="260" y="60" width="170" height="80" rx="6" class="live"/>
+  <text x="270" y="82" class="ttl">1. Get()</text>
+  <text x="270" y="104">entryPool.Get().(*LogEntry)</text>
+  <text x="270" y="122">may allocate via New()</text>
+
+  <rect x="470" y="60" width="170" height="80" rx="6" class="live"/>
+  <text x="480" y="82" class="ttl">2. reset()</text>
+  <text x="490" y="104">caller=nil, buf=buf[:0]</text>
+  <text x="490" y="122">err=nil, level=0</text>
+
+  <rect x="680" y="60" width="170" height="80" rx="6" class="live"/>
+  <text x="690" y="82" class="ttl">3. Log()</text>
+  <text x="690" y="104">build payload, encode,</text>
+  <text x="690" y="122">channel send</text>
+
+  <rect x="680" y="170" width="170" height="80" rx="6" class="live"/>
+  <text x="690" y="192" class="ttl">4. Put()</text>
+  <text x="690" y="214">entryPool.Put(e)</text>
+  <text x="690" y="232">return to P-local</text>
+
+  <rect x="470" y="170" width="170" height="80" rx="6" class="gc"/>
+  <text x="480" y="192" class="ttl">GC pressure</text>
+  <text x="480" y="214">if Put after long idle</text>
+  <text x="480" y="230">may be reclaimed</text>
+  <text x="480" y="248">acceptable</text>
+
+  <rect x="260" y="170" width="170" height="80" rx="6" class="live"/>
+  <text x="270" y="192" class="ttl">Reset semantics:</text>
+  <text x="270" y="214">all per-call state cleared</text>
+  <text x="270" y="232">F26 must be exhaustive</text>
+  <text x="270" y="250">verified by reset_test.go</text>
+
+  <!-- Risks panel -->
+  <rect x="20" y="320" width="940" height="200" rx="6" fill="#fafafa" stroke="#888"/>
+  <text x="30" y="342" class="ttl">Risks (PRD §8 R3) and mitigations:</text>
+  <text x="30" y="364">- false-sharing: entry struct size aligned to cache line, no embedded mutex on hot path</text>
+  <text x="30" y="382">- pool churn: high-concurrency may bounce P-local entries; mitigation: GenerateInitialPool sized to GOMAXPROCS * 64</text>
+  <text x="30" y="400">- GC clear: sync.Pool is cleared on GC; first-N alloc cost amortizes; bench harness must include parallel variant</text>
+  <text x="30" y="418">- if parallel bench regresses &gt;10% vs serial, switch to slab-pool keyed by runtime_procPin (v1 escape hatch)</text>
+  <text x="30" y="438">- pooled []byte buf must call buf=buf[:0] in reset(); never shrink cap to keep sized-grow benefit</text>
+  <text x="30" y="458">- pooled []string slice for ParseLogField output must be capped (e.g. 64 entries) to avoid retaining huge slices</text>
+  <text x="30" y="480">- LogEvent.Data is copied into fresh []byte before channel send to allow buf reuse pre-Put (decouples lifetime)</text>
+  <text x="30" y="500">- Put MUST be the last op on entry; never use entry fields after Put (current code: Log calls Put inline; ok)</text>
+
+  <!-- Arrows -->
+  <line x1="220" y1="100" x2="260" y2="100" stroke="#222" stroke-width="1.4" marker-end="url(#ar4)"/>
+  <line x1="430" y1="100" x2="470" y2="100" stroke="#222" stroke-width="1.4" marker-end="url(#ar4)"/>
+  <line x1="640" y1="100" x2="680" y2="100" stroke="#222" stroke-width="1.4" marker-end="url(#ar4)"/>
+  <path d="M765,140 L765,170" fill="none" stroke="#222" stroke-width="1.4" marker-end="url(#ar4)"/>
+  <path d="M680,210 L120,210 L120,180 L120,180" fill="none" stroke="#222" stroke-width="1.4" marker-end="url(#ar4)"/>
+</svg>

@@ -7,14 +7,14 @@ fmt:
 	gofmt -w .
 
 test:
-	go test ./... -race -v -covermode=atomic
+	go test ./... -tags testing -race -v -covermode=atomic
 
 vet:
-	go vet ./...
+	go vet -tags testing ./...
 
 test-coverage:
 	mkdir -p .out
-	go test ./... -coverprofile $(coverageFile) -covermode=atomic 
+	go test ./... -tags testing -coverprofile $(coverageFile) -covermode=atomic
 	go tool cover -html=$(coverageFile) -o $(coverageHTML)
 	@echo "Coverage report generated at $(coverageHTML)"
 	@echo "Opening coverage report in browser..."

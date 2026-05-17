@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 200" width="700" height="200" font-family="monospace">
+  <!-- Background -->
+  <rect width="700" height="200" fill="#0d1117" rx="8"/>
+
+  <!-- Title -->
+  <text x="350" y="28" fill="#e6edf3" font-size="14" font-weight="bold" text-anchor="middle">SLO Progress — Hot-path Latency (Apple M1 Pro)</text>
+
+  <!-- Axis labels -->
+  <text x="50" y="65" fill="#8b949e" font-size="11" text-anchor="middle">0 ns</text>
+  <text x="225" y="65" fill="#8b949e" font-size="11" text-anchor="middle">500 ns</text>
+  <text x="400" y="65" fill="#f85149" font-size="11" font-weight="bold" text-anchor="middle">1,000 ns ← SLO</text>
+  <text x="575" y="65" fill="#8b949e" font-size="11" text-anchor="middle">1,500 ns</text>
+  <text x="650" y="65" fill="#8b949e" font-size="11" text-anchor="middle">2,000 ns</text>
+
+  <!-- Track -->
+  <rect x="50" y="75" width="600" height="20" fill="#21262d" rx="4"/>
+
+  <!-- SLO gate line -->
+  <line x1="400" y1="70" x2="400" y2="105" stroke="#f85149" stroke-width="2" stroke-dasharray="4,2"/>
+
+  <!-- Hot path bar (~2050 ns = 102.5% of 2000ns range → cap at 600) -->
+  <rect x="50" y="75" width="570" height="20" fill="#f85149" rx="4" opacity="0.7"/>
+  <!-- label over bar -->
+  <text x="340" y="89" fill="#ffffff" font-size="11" font-weight="bold" text-anchor="middle">~2,050 ns/op (M3) ❌ 2× over SLO</text>
+
+  <!-- Filtered path bar (36 ns ≈ 10.8px) -->
+  <rect x="50" y="105" width="11" height="16" fill="#3fb950" rx="2"/>
+  <text x="67" y="117" fill="#3fb950" font-size="11">36 ns/op ✅ filtered path (0 allocs)</text>
+
+  <!-- Parallel path bar (~1880 ns ≈ 564px) -->
+  <rect x="50" y="130" width="564" height="16" fill="#d29922" rx="4" opacity="0.8"/>
+  <text x="330" y="142" fill="#ffffff" font-size="11" text-anchor="middle">~1,880 ns/op parallel (8 goroutines)</text>
+
+  <!-- Legend -->
+  <text x="50" y="175" fill="#8b949e" font-size="10">M3 Milestone | Branch: feat/12-lognugget-v1 | go test -bench=. -count=10</text>
+  <text x="50" y="190" fill="#8b949e" font-size="10">Dominant cost: map[string]any context iteration (~600 ns). Optimization tracked post-v1.0.0.</text>
+</svg>
