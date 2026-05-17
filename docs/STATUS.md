@@ -1,7 +1,7 @@
 # LogNugget v1 — Live Status Dashboard
 
 > **Last updated:** 2026-05-18
-> **Branch:** `feat/12-lognugget-v1`
+> **Branch:** `release/v1.0.0` → PR [#80](https://github.com/architagr/LogNugget/pull/80)
 > **Umbrella:** [#12](https://github.com/architagr/LogNugget/issues/12)
 
 ---
@@ -9,8 +9,8 @@
 ## Overall Progress
 
 ```
-39 / 40 stories complete  (98%)
-██████████████████████████████████████░░  98%
+40 / 40 stories complete  (100%)
+████████████████████████████████████████  100%
 ```
 
 | Epic | Done | Total | % |
@@ -19,7 +19,7 @@
 | B — Behavior-Gap Fixes | 12 | 12 | ✅ 100% |
 | C — Alloc Discipline | 5 | 5 | ✅ 100% |
 | D — Lifecycle (Stop/Shutdown) | 6 | 6 | ✅ 100% |
-| E — Release | 3 | 4 | 🚀 75% — story 032 is final gate |
+| E — Release | 4 | 4 | ✅ 100% — PR #80 open for review |
 
 ---
 
@@ -155,7 +155,7 @@ idempotent `Shutdown()`, zero-config `init()`, race-clean under `-race`, SC8 fan
 | 029 | #46 | TS-32 CI -shuffle=on + t.Parallel sweep | ✅ MERGED |
 | 030 | #47 | TS-33 CI cover ≥ 85% per package | ✅ MERGED |
 | 031 | #48 | README + context threshold + benchmark numbers | ✅ MERGED |
-| 032 | #49 | release/v1.0.0 cut + tag | ⏳ NEXT |
+| 032 | #49 | release/v1.0.0 cut + tag | 🚀 PR #80 open |
 
 ---
 
@@ -164,11 +164,11 @@ idempotent `Shutdown()`, zero-config `init()`, race-clean under `-race`, SC8 fan
 ![Critical Path](assets/critical-path.svg)
 
 ```
-[A ✅][B ✅] → [C ✅] → [D ✅] → [029 ✅][030 ✅][031 ✅] → [032] v1.0.0 🚀
+[A ✅][B ✅] → [C ✅] → [D ✅] → [029 ✅][030 ✅][031 ✅] → [032 🚀] → v1.0.0 PR #80
 ```
 
-**All gates are green except the hot-path SLO** (2× over budget due to ctx map).
-The SLO miss does NOT block v1.0.0 per project decision — it is tracked post-release.
+**All stories complete.** Release PR [#80](https://github.com/architagr/LogNugget/pull/80) is open for review.
+SLO miss (hot-path 2× over 1 µs) does NOT block v1.0.0 per project decision — tracked post-release.
 
 ---
 
