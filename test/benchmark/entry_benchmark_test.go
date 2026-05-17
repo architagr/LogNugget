@@ -1,8 +1,13 @@
+// Package benchmark hosts library hot-path benchmarks.
+//
+// why: comparison benches against external loggers (e.g. zerolog) live under
+// examples/ in nested modules so the library go.mod stays stdlib + testify
+// only (NF12). T-9: Benchmark_ZeroLog removed from this file; full bench
+// rewrite tracked by story 010.
 package benchmark
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -11,39 +16,20 @@ import (
 	"github.com/architagr/lognugget/enum"
 	"github.com/architagr/lognugget/model"
 	pipelineStage "github.com/architagr/lognugget/pipeline_stage"
-	"github.com/rs/zerolog"
 )
 
-type traceHook struct {
-}
+type ctxKey string
 
-func (h traceHook) Run(e *zerolog.Event, level zerolog.Level, msg string) {
-	ctx := e.GetCtx()
-	if ctx != nil {
-		requestId := ctx.Value("requestID")
-		userId := ctx.Value("userID")
-		e.Str("request_id", requestId.(string))
-		e.Str("user_id", userId.(string))
-	}
-}
+const (
+	ctxKeyRequestID ctxKey = "requestID"
+	ctxKeyUserID    ctxKey = "userID"
+)
 
-// 1481232           805.6 ns/op      1279 B/op         10 allocs/op
-// 1704498	       641.8 ns/op	     680 B/op	       9 allocs/op
-func Benchmark_ZeroLog(b *testing.B) {
-	b.StopTimer()
-	obj := zerolog.New(&MockWriter{}).With().Timestamp().Logger().Hook(traceHook{})
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		ctx := context.WithValue(context.WithValue(context.Background(), "requestID", fmt.Sprint(i)), "userID", "User1234")
-		z := obj.With().Ctx(ctx).Logger()
-		z.Debug().Fields(map[string]any{"itrr": i}).Msg("debug message that has a log message")
-	}
-
-}
-
+// MockWriter is a discard io.Writer used by Benchmark_Log to avoid I/O cost.
 type MockWriter struct {
 }
 
+// Write discards p and returns its length to satisfy io.Writer.
 func (e *MockWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
@@ -59,7 +45,6 @@ func (e *MockWriter) Write(p []byte) (n int, err error) {
 func Benchmark_Log(b *testing.B) {
 	b.StopTimer()
 	out := &MockWriter{}
-	config.SetOutput(&MockWriter{})
 	config.SetMinLevel(enum.LevelDebug)
 	config.SetEncoderType(enum.EncoderJSON)
 	config.SetStaticEnvFieldsParser(func() map[string]any {
@@ -69,8 +54,8 @@ func Benchmark_Log(b *testing.B) {
 		}
 	})
 	config.SetContextFieldsParser(func(ctx context.Context) map[string]any {
-		requestId := ctx.Value("requestID")
-		userId := ctx.Value("userID")
+		requestId := ctx.Value(ctxKeyRequestID)
+		userId := ctx.Value(ctxKeyUserID)
 		return map[string]any{
 			"request_id": requestId,
 			"user_id":    userId,
@@ -83,10 +68,17 @@ func Benchmark_Log(b *testing.B) {
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, unsetPostProcessor)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
 	entry.GenerateInitialPool(1_000_000)
+
+	ctxs := make([]context.Context, b.N)
+	for i := range ctxs {
+		ctxs[i] = context.WithValue(context.WithValue(context.Background(), ctxKeyRequestID, i), ctxKeyUserID, "User1234")
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		ctx := context.WithValue(context.WithValue(context.Background(), "requestID", i), "userID", "User1234")
 		entryObj := entry.NewLogEntry()
-		entryObj.Debug(ctx, "debug message that has a log message, from lognugget", model.LogAttr{Key: model.LogAttrKey("itrr"), Value: model.LogAttrValue(i)})
+		entryObj.Debug(ctxs[i], "debug message that has a log message, from lognugget", model.LogAttr{Key: model.LogAttrKey("itrr"), Value: model.LogAttrValue(i)})
 	}
 }

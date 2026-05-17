@@ -92,6 +92,33 @@ git -C /Users/architagarwal/code/LogNugget worktree remove \
 
 Project Lead audits `git worktree list` weekly; stale worktrees are a sign of stalled stories.
 
+## Wave 2 dispatch (post Wave 1 merge)
+
+After PRs #50 / #51 / #52 merge into `feat/12-lognugget-v1`:
+
+### First triple — parallel
+
+| Worktree | Story | Owner | Why parallel |
+| --- | --- | --- | --- |
+| `lognugget-v1-002` | 002 (TS-02 doubles) | engineer-A | depends on 001 only; `test/support/` |
+| `lognugget-v1-005` | 005 (D-15 relocate demo) | engineer-B | depends on 004; demo dir only |
+| `lognugget-v1-006` | 006 (D-9 init/ResetConfig test-only) | engineer-A or B | depends on 004; `config/` |
+
+005 + 006 both branch off Wave 1 merge. 002 unblocks 007/035/036.
+
+### Wave 2.5 — sequential, after 006 lands
+
+- Story 039 (config race fix). MUST follow 006 — both touch `config.ResetConfig` and would collide. Run alone in `lognugget-v1-039` worktree.
+
+### Doc-only — handle inline
+
+- Story 038 (bench script path doc) — already DOC-FIXED inline by PL.
+- Story 040 (story 001 doc drift) — handled inline by PL during arbitration.
+
+### Skip (not Wave 2)
+
+- 003, 007, 009 (Epic A tail) — Wave 3 per existing plan.
+
 ## Cap rationale
 
 - 3 worktrees max keeps merge surface small enough that the feature branch doesn't accumulate conflicts faster than reviews close.
