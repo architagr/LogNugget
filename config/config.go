@@ -174,21 +174,40 @@ func SetOutput(output io.Writer) {
 	defaultConfig.output = output
 }
 
-// PublishLog sends a log event onto the dispatch channel. Safe for
-// concurrent use; callers block if the channel buffer is full.
+// PublishLog makes a defensive copy of Data and sends the event onto
+// the dispatch channel. Safe for concurrent use; callers block if the
+// channel buffer is full.
 //
-// why: the RLock is taken only for the pointer snapshot of ch, not
-// across the send itself. resetConfig never closes the old channel
-// (see comment there), so there is no risk of a "send on closed
-// channel" panic. Releasing the RLock before the send avoids holding
-// it during a potentially blocking channel operation.
+// why (ARCH-7 / NF3): entry.logWithSkip passes the encoder's output
+// buffer as Data. That buffer may share backing memory with a
+// sync.Pool-owned slice that the caller returns to the pool immediately
+// after this call returns. The background ProcessLogEvent goroutine
+// reads LogEvent.Data asynchronously; without a copy, the goroutine
+// and the pool recycler race on the same backing array.
+//
+// The copy is `append([]byte(nil), Data...)` rather than a
+// bytes.Clone-style helper so the allocation is explicit and
+// auditable. It produces exactly 1 heap alloc (~len(Data) bytes) per
+// event — the accepted NF3 cost for crossing the goroutine boundary
+// safely (see bench-baseline.txt, ARCH-7 story).
+//
+// why (lock discipline): the RLock is taken only for the pointer
+// snapshot of ch, not across the send itself. resetConfig never closes
+// the old channel (see comment there), so there is no risk of a "send
+// on closed channel" panic. Releasing the RLock before the send avoids
+// holding it during a potentially blocking channel operation.
 func PublishLog(Level enum.LogLevel, Data []byte) {
+	// why: copy before acquiring the lock so we do not hold configMu
+	// across the allocation. The copy is safe to perform outside the
+	// lock: Data is caller-owned at this point, and the only race we
+	// guard against (pool recycling) happens after the call returns.
+	dataCopy := append([]byte(nil), Data...)
 	configMu.RLock()
 	currentCh := ch
 	configMu.RUnlock()
 	currentCh <- LogEvent{
 		Level: Level,
-		Data:  Data,
+		Data:  dataCopy,
 	}
 }
 
