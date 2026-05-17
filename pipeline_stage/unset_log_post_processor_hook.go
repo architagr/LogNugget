@@ -16,6 +16,14 @@ type unsetLogEventPostProcessor struct {
 	ticker        *time.Ticker
 	output        io.Writer
 	stopCh        chan struct{}
+	// doneCh is closed by activeBucketWatcher after the final drain completes.
+	// Stop() blocks on doneCh so callers get a synchronous shutdown guarantee
+	// without busy-waiting. D-11 / SC5.
+	doneCh   chan struct{}
+	stopOnce sync.Once
+	// flushWg tracks in-flight async flush goroutines started by flushLogMessages
+	// so that the stop-path drain can wait for them before closing doneCh.
+	flushWg sync.WaitGroup
 }
 
 // NewUnsetLogEventPostProcessor creates a new post processor.
@@ -27,23 +35,36 @@ func NewUnsetLogEventPostProcessor(rate time.Duration, maxBufferSize int, output
 		output:        output,
 		ticker:        time.NewTicker(rate),
 		stopCh:        make(chan struct{}),
+		doneCh:        make(chan struct{}),
 	}
 	go obj.activeBucketWatcher()
 	return obj
 }
 
-// activeBucketWatcher periodically flushes messages.
+// activeBucketWatcher periodically flushes messages and handles shutdown.
 func (h *unsetLogEventPostProcessor) activeBucketWatcher() {
 	for {
 		select {
 		case <-h.ticker.C:
 			h.flushLogMessages()
 		case <-h.stopCh:
-			h.flushLogMessages()
-			for len(h.activeBucket) > 0 {
-				time.Sleep(h.rate)
-			}
 			h.ticker.Stop()
+			// Drain the active bucket synchronously on the stop path.
+			// why: caller of Stop() expects all enqueued messages to be
+			// written before Stop returns. We take the lock once, swap the
+			// bucket, then wait for any in-flight async flushes and write
+			// the remaining bucket directly without spawning a goroutine.
+			// No time.Sleep polling — D-11.
+			h.mu.Lock()
+			remaining := h.activeBucket
+			h.activeBucket = make([][]byte, 0, h.maxBucketSize)
+			h.mu.Unlock()
+
+			// Wait for any async flushes that were in flight before stopCh fired.
+			h.flushWg.Wait()
+			// Write the final batch synchronously.
+			h.printMessage(remaining)
+			close(h.doneCh)
 			return
 		}
 	}
@@ -54,19 +75,24 @@ func (h *unsetLogEventPostProcessor) resetBucket() {
 	h.activeBucket = make([][]byte, 0, h.maxBucketSize)
 }
 
-// flushLogMessages safely extracts and processes messages.
+// flushLogMessages safely extracts the active bucket and writes it
+// asynchronously. In-flight goroutines are tracked by flushWg so that
+// Stop() can wait for them before closing doneCh.
 func (h *unsetLogEventPostProcessor) flushLogMessages() {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if len(h.activeBucket) == 0 {
+		h.mu.Unlock()
 		return
 	}
-
 	backupBucket := h.activeBucket
 	h.resetBucket()
+	h.mu.Unlock()
 
-	// process asynchronously
-	go h.printMessage(backupBucket)
+	h.flushWg.Add(1)
+	go func() {
+		defer h.flushWg.Done()
+		h.printMessage(backupBucket)
+	}()
 }
 
 // printMessage writes buffered messages to the output.
@@ -97,7 +123,12 @@ func (h *unsetLogEventPostProcessor) Name() string {
 	return "unsetLogEventPostProcessor"
 }
 
-// Stop safely shuts down the processor.
+// Stop signals the processor to shut down and blocks until the active bucket
+// is fully drained and all writes complete. Idempotent: a second call is a
+// no-op and returns immediately. D-11 / SC5.
 func (h *unsetLogEventPostProcessor) Stop() {
-	close(h.stopCh)
+	h.stopOnce.Do(func() {
+		close(h.stopCh)
+	})
+	<-h.doneCh
 }
