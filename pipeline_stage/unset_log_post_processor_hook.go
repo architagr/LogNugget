@@ -95,27 +95,45 @@ func (h *unsetLogEventPostProcessor) flushLogMessages() {
 	}()
 }
 
-// printMessage writes buffered messages to the output.
+// printMessage writes buffered messages to the output, one per line.
+// Write errors are intentionally ignored: log delivery is best-effort and
+// the caller has already released the bucket; there is nothing to retry.
 func (h *unsetLogEventPostProcessor) printMessage(data [][]byte) {
 	for _, d := range data {
-		h.output.Write(d)
-		h.output.Write([]byte{'\n'})
+		_, _ = h.output.Write(d)
+		_, _ = h.output.Write([]byte{'\n'})
 	}
 }
 
-// PublishLogMessage appends a message and flushes if capacity reached.
+// PublishLogMessage appends entry to the active bucket and, when the bucket
+// reaches capacity, atomically swaps it out under the lock and spawns a
+// flush goroutine after releasing the lock.
+//
+// The swap-under-lock pattern eliminates the Unlock+flush+Lock sequence that
+// was the root cause of D-12: a deferred Unlock paired with an explicit
+// Unlock inside the same method causes a double-unlock panic under concurrent
+// load.  By capturing the full slice reference before resetting the field and
+// only calling printMessage after the lock is released, each slice is owned
+// by exactly one goroutine and is never written to again.
 func (h *unsetLogEventPostProcessor) PublishLogMessage(entry []byte) {
+	var toFlush [][]byte
+
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if len(h.activeBucket) >= h.maxBucketSize {
-		// extract bucket and reset before writing (avoid blocking)
-		h.mu.Unlock()
-		h.flushLogMessages()
-		h.mu.Lock()
-	}
-
 	h.activeBucket = append(h.activeBucket, entry)
+	if len(h.activeBucket) >= h.maxBucketSize {
+		// why: capture the slice pointer and reset activeBucket while still
+		// holding the lock so no other goroutine can observe the old slice
+		// or append into it after we release.
+		toFlush = h.activeBucket
+		h.activeBucket = make([][]byte, 0, h.maxBucketSize)
+	}
+	h.mu.Unlock()
+
+	if toFlush != nil {
+		// why: spawn asynchronously so PublishLogMessage never blocks the
+		// caller on I/O — same guarantee as the ticker-driven flush path.
+		go h.printMessage(toFlush)
+	}
 }
 
 // Name returns processor name.
