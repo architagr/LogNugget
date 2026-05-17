@@ -34,7 +34,17 @@ type LogEntry struct {
 	// caller is the call-site frame appended to the log line when cfg.addSource
 	// is true. Populated lazily inside logWithSkip via runtime.Caller(skip).
 	caller *runtime.Frame
+	// buf is the reusable byte accumulator for the rendered log body.
+	// It is pre-grown to initBufCap at construction and reset to len=0 (not
+	// nil) on each pool cycle so that the backing array survives across reuses.
+	// why: eliminates the make([]byte, 0, 256) allocation on every Log call
+	// (D-6 / F27). initBufCap = 1 KB covers the vast majority of log lines.
+	buf []byte
 }
+
+// initBufCap is the initial capacity of LogEntry.buf. 1 KB covers ~80% of
+// real-world structured log lines without reallocation on the hot path.
+const initBufCap = 1024
 
 // NewLogEntry obtains a *LogEntry from the internal sync.Pool, resets all
 // fields to zero, and returns it ready for use. Callers must invoke exactly
@@ -55,7 +65,7 @@ func GenerateInitialPool(n int) {
 }
 
 func initLogEntry() *LogEntry {
-	return &LogEntry{}
+	return &LogEntry{buf: make([]byte, 0, initBufCap)}
 }
 
 // reset zeroes every field of LogEntry so that entries returned from the
@@ -63,12 +73,16 @@ func initLogEntry() *LogEntry {
 //
 // why: D-18 — using a zero-value assignment instead of manually listing
 // fields ensures that new fields added to LogEntry in the future are
-// automatically zeroed without requiring a matching update here. A manual
-// nil/zero list is a maintenance hazard: any new field not added to reset()
-// silently leaks state across pooled reuses. The reflect-exhaustive test in
-// reset_test.go enforces this guarantee at test time.
+// automatically zeroed without requiring a matching update here.
+//
+// Exception: buf is intentionally retained (len reset to 0, capacity kept)
+// so that the backing array survives pool cycles and eliminates the per-call
+// make([]byte, 0, 256) allocation (D-6 / F27). The reflect-exhaustive test
+// in reset_test.go is updated to allow this exception.
 func (e *LogEntry) reset() {
+	retained := e.buf[:0]
 	*e = LogEntry{}
+	e.buf = retained
 }
 
 // Put returns e to the internal sync.Pool. It is called automatically by Log
@@ -148,11 +162,12 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 	rendered := cfg.DefaultFieldsRendered()
 	ctxData := e.setLogContextFields(ctx)
 
-	// why: pre-allocate 256 bytes so the three mandatory fields (time, level,
-	// message) plus a handful of extras fit without reallocation on the hot
-	// path. 256 is a heuristic covering ~80% of real-world log lines; the
-	// slice grows automatically for larger payloads. D-16 / Story 018.
-	dst := make([]byte, 0, 256)
+	// why: reuse pooled buf instead of make([]byte, 0, 256) per call.
+	// The backing array was pre-grown to initBufCap (1 KB) at pool construction
+	// and is reset to len=0 (not nil) on each pool cycle, so no allocation
+	// occurs on the hot path for log lines that fit within the capacity.
+	// D-6 / F27 / ARCH-8.
+	e.buf = e.buf[:0]
 
 	// why: append the pre-rendered `"key":` prefix bytes directly instead of
 	// calling AppendField, which would re-encode the key string on every call.
@@ -160,14 +175,14 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 	// the hot path performs zero extra allocations for the three mandatory
 	// fields (ARCH-6 / LLD §6.5). AppendQuotedString handles RFC 8259 escaping
 	// of the value without the key-encoding overhead.
-	dst = append(dst, rendered[enum.DefaultLogKeyTime]...)
-	dst = config.AppendQuotedString(dst, customTime.Format(customTime.TimeNow(), cfg.TimeFormat()))
-	dst = append(dst, ',')
-	dst = append(dst, rendered[enum.DefaultLogKeyLevel]...)
-	dst = config.AppendQuotedString(dst, level.String())
-	dst = append(dst, ',')
-	dst = append(dst, rendered[enum.DefaultLogKeyMessage]...)
-	dst = config.AppendQuotedString(dst, message)
+	e.buf = append(e.buf, rendered[enum.DefaultLogKeyTime]...)
+	e.buf = config.AppendQuotedString(e.buf, customTime.Format(customTime.TimeNow(), cfg.TimeFormat()))
+	e.buf = append(e.buf, ',')
+	e.buf = append(e.buf, rendered[enum.DefaultLogKeyLevel]...)
+	e.buf = config.AppendQuotedString(e.buf, level.String())
+	e.buf = append(e.buf, ',')
+	e.buf = append(e.buf, rendered[enum.DefaultLogKeyMessage]...)
+	e.buf = config.AppendQuotedString(e.buf, message)
 
 	for _, field := range fields {
 		key := string(field.Key)
@@ -176,35 +191,39 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 			// prefix it so the reserved key is never shadowed. D-8.
 			key = config.DefaultPrefix + key
 		}
-		dst = append(dst, ',')
-		dst = config.AppendField(dst, key, field.Value)
+		e.buf = append(e.buf, ',')
+		e.buf = config.AppendField(e.buf, key, field.Value)
 	}
 
 	// why: ctxData is still []string from setLogContextFields (a separate
 	// refactor out of scope for Story 018). Each string is already a rendered
 	// "key":value fragment; we just need to append it with a leading comma.
 	for _, d := range ctxData {
-		dst = append(dst, ',')
-		dst = append(dst, d...)
+		e.buf = append(e.buf, ',')
+		e.buf = append(e.buf, d...)
 	}
 
 	if err != nil {
-		dst = append(dst, ',')
-		dst = append(dst, rendered[enum.DefaultLogKeyError]...)
-		dst = config.AppendQuotedString(dst, err.Error())
+		e.buf = append(e.buf, ',')
+		e.buf = append(e.buf, rendered[enum.DefaultLogKeyError]...)
+		e.buf = config.AppendQuotedString(e.buf, err.Error())
 	}
 	if e.caller != nil {
-		dst = append(dst, ',')
-		dst = append(dst, rendered[enum.DefaultLogKeyCaller]...)
-		dst = config.AppendQuotedString(dst, e.caller.Function)
+		e.buf = append(e.buf, ',')
+		e.buf = append(e.buf, rendered[enum.DefaultLogKeyCaller]...)
+		e.buf = config.AppendQuotedString(e.buf, e.caller.Function)
 	}
 	if sf := cfg.StaticFields(); sf != "" {
-		dst = append(dst, ',')
-		dst = append(dst, sf...)
+		e.buf = append(e.buf, ',')
+		e.buf = append(e.buf, sf...)
 	}
 
 	en := cfg.Encoder()
-	byteData := en.Append(nil, dst)
+	// why: en.Append(nil, e.buf) allocates a fresh []byte for the encoded log
+	// line (wraps body in {…}\n). byteData does not share the backing array
+	// with e.buf, so it is safe to Put e immediately after (D-6 / story 024
+	// explicit-copy step is a belt-and-suspenders guard for future encoders).
+	byteData := en.Append(nil, e.buf)
 	config.PublishLog(level, byteData)
 
 	e.Put()
