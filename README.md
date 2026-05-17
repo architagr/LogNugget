@@ -137,35 +137,71 @@ caller → entry.LogEntry.Info(ctx, msg, fields...)
 
 ---
 
-## Benchmark Results (M3 Baseline — Apple M1 Pro)
+## Logger Comparison — Parallel Throughput with 10 Context Fields
 
-All benchmarks run with `go test -bench=. -benchmem -count=10`.
+Benchmarks simulate a real Gin handler: build a context with **10 fields** (trace_id, span_id,
+request_id, user_id, tenant_id, session_id, env, region, service, version) and log one Info
+message with 2 call-site attrs (method, path). Output is `io.Discard`. Parallel benchmarks use
+`b.RunParallel` with `GOMAXPROCS=8` (Apple M1 Pro, 8-core).
+
+Run from `examples/bench/`: `go test -bench=. -benchmem -count=10 -run=^$`
+
+### Serial (1 goroutine)
+
+| Logger | ns/op | B/op | allocs/op | ~ops/sec |
+|--------|-------|------|-----------|----------|
+| **zerolog** | **~548** | **0** | **0** | **~1.82 M** |
+| LogNugget ¹ | ~3,630 | 2,909 | 55 | ~275 K |
+| logrus | ~5,570 | 4,857 | 58 | ~179 K |
+
+### Parallel (8 goroutines, GOMAXPROCS=8)
+
+| Logger | ns/op | B/op | allocs/op | ~ops/sec (total) |
+|--------|-------|------|-----------|-----------------|
+| **zerolog** | **~110** | **0** | **0** | **~9.09 M** |
+| LogNugget ¹ | ~3,440 | 2,909 | 55 | ~290 K |
+| logrus | ~6,880 | 4,863 | 58 | ~145 K |
+
+### Filtered path (log level below minimum — fast reject)
+
+| Logger | ns/op | B/op | allocs/op | ~ops/sec |
+|--------|-------|------|-----------|----------|
+| LogNugget | **~35** | **0** | **0** | **~28.6 M** |
+
+> ¹ **LogNugget is async** — the caller returns after a channel put; actual JSON encode and
+> `io.Write` happen on a background goroutine. The `ns/op` figures above reflect **caller-side
+> cost only** (no IO wait). zerolog and logrus are **synchronous** — their numbers include full
+> JSON encoding and write to `io.Discard`.
+>
+> **Why is zerolog faster?** zerolog uses a zero-alloc fluent API that writes directly to an
+> internal byte buffer with no `map[string]any` iteration. LogNugget's dominant cost at 10
+> context fields is `map[string]any` iteration in the context parser (~600 ns). This is tracked
+> as a post-v1.0.0 optimization (pre-render context as `[]byte` on first call and cache).
+>
+> **Why does logrus degrade under parallelism?** logrus uses a global mutex for concurrent
+> writes. At 8 goroutines on M1 Pro, contention raises per-op cost from ~5,570 ns to ~6,880 ns.
+
+### LogNugget internal benchmarks (M3 Baseline)
+
+All benchmarks from `go test -bench=. -benchmem -count=10 -run=^$ ./...`
 
 | Benchmark | ns/op | B/op | allocs/op | Notes |
 |-----------|-------|------|-----------|-------|
-| `Benchmark_Log` (serial) | ~2050 | 1400 | 18 | Full pipeline, 2 ctx fields |
-| `Benchmark_Log_Parallel` | ~1880 | 986 | 17 | `b.RunParallel`, 2 ctx fields |
-| `Benchmark_Log_Parallel_NoCtx` | ~1840 | 882 | 16 | No context parser |
-| `Benchmark_Log_Parallel_10CtxFields` | ~3200 | 2690 | 53 | Max recommended ctx size |
+| `Benchmark_Log` (serial) | ~2,050 | 1,400 | 18 | Full pipeline, 2 ctx fields |
+| `Benchmark_Log_Parallel` | ~1,880 | 986 | 17 | `b.RunParallel`, 2 ctx fields |
+| `Benchmark_Log_Parallel_NoCtx` | ~1,840 | 882 | 16 | No context parser |
+| `Benchmark_Log_Parallel_10CtxFields` | ~3,200 | 2,690 | 53 | Max recommended ctx size |
 | `Benchmark_Log_Filtered_BelowMinLevel` | **36** | 0 | 0 | Fast-reject path (level gate) |
-| `Benchmark_Log_JSONEscape_SafeASCII` | ~1650 | 946 | 16 | Pure ASCII field values |
-| `Benchmark_Log_JSONEscape_Unicode` | ~1730 | 1010 | 16 | Multibyte Unicode values |
-| `Benchmark_Log_JSONEscape_ControlChars` | ~1600 | 978 | 16 | Tab/newline escape |
+| `Benchmark_Log_JSONEscape_SafeASCII` | ~1,650 | 946 | 16 | Pure ASCII field values |
+| `Benchmark_Log_JSONEscape_Unicode` | ~1,730 | 1,010 | 16 | Multibyte Unicode values |
+| `Benchmark_Log_JSONEscape_ControlChars` | ~1,600 | 978 | 16 | Tab/newline escape |
 
 **SLO target: < 1,000 ns/op (1 µs) on the hot path.**  
-Current hot-path result: ~1,840–2,050 ns/op — 2× over budget. The dominant cost is `map[string]any` context iteration. Optimization plan: pre-render context fields as `[]byte` on first call and cache. Tracked post-v1.0.0.
+Current hot-path result: ~1,840–2,050 ns/op — 2× over budget. Dominant cost: `map[string]any`
+context iteration. Optimization: pre-render context fields as `[]byte` on first call and cache.
+Tracked post-v1.0.0.
 
-**Filtered path (36 ns, 0 allocs)** is well within the < 80 ns target.
-
----
-
-## Parallel Throughput
-
-`Benchmark_Log_Parallel` runs `b.RunParallel` with `GOMAXPROCS=8` (M1 Pro 8-core):
-
-- **~1,880 ns/op** wall-clock per op under concurrent load
-- **0 allocs on the filter path** — filtered events cost 36 ns each regardless of concurrency
-- At 8 goroutines: throughput ≈ **4.3 million log events/second** (filtered) or **~550 K events/second** (full pipeline)
+**Filtered path (35 ns, 0 allocs)** is well within the < 80 ns target.
 
 ---
 
