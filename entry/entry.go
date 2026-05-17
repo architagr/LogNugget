@@ -62,6 +62,12 @@ func (e *LogEntry) reset() {
 // Put returns e to the internal sync.Pool. It is called automatically by Log
 // after publishing; callers should not invoke it directly unless they abandon
 // an entry without logging.
+//
+// Safety after PublishLog: by the time Put is called, the encoded bytes have
+// already been passed to config.PublishLog, which copies them into a fresh
+// []byte before sending the LogEvent onto the dispatch channel (ARCH-7). The
+// backing array of the encoder's output buffer therefore has no live readers;
+// Put (and any subsequent pool reuse) cannot race with ProcessLogEvent.
 func (e *LogEntry) Put() {
 	entryPool.Put(e)
 }
