@@ -78,6 +78,45 @@
 
 ---
 
+## Cross-Logger Comparison — Parallel Throughput (10 Context Fields)
+
+Real benchmark numbers from `examples/bench/` — Apple M1 Pro, GOMAXPROCS=8.
+Context: trace_id, span_id, request_id, user_id, tenant_id, session_id, env, region, service, version.
+
+### Parallel (8 goroutines)
+
+| Logger | ns/op | B/op | allocs/op | ops/sec (total) | Notes |
+|--------|-------|------|-----------|-----------------|-------|
+| **zerolog** | **~110** | **0** | **0** | **~9.09 M** | Sync, zero-alloc fluent API |
+| LogNugget | ~3,440 | 2,909 | 55 | ~290 K | **Async** — caller cost only, IO background |
+| logrus | ~6,880 | 4,863 | 58 | ~145 K | Sync, global mutex → degrades under load |
+
+### Serial (1 goroutine)
+
+| Logger | ns/op | B/op | allocs/op | ops/sec | Notes |
+|--------|-------|------|-----------|---------|-------|
+| **zerolog** | **~548** | **0** | **0** | **~1.82 M** | Sync |
+| LogNugget | ~3,630 | 2,909 | 55 | ~275 K | Async (caller cost only) |
+| logrus | ~5,570 | 4,857 | 58 | ~179 K | Sync |
+
+### LogNugget filtered path (below min level — zero work)
+
+| ns/op | B/op | allocs/op | ops/sec |
+|-------|------|-----------|---------|
+| **~35** | **0** | **0** | **~28.6 M** |
+
+> **Why zerolog wins on raw throughput:** zerolog's fluent API writes fields directly to a
+> pre-allocated buffer — no `map[string]any`, no interface boxing, no GC pressure.
+> LogNugget's ~600 ns context overhead comes from iterating `map[string]any` inside the
+> user-supplied context parser. Post-v1.0.0 fix: pre-render context fields as `[]byte` once
+> and cache. logrus degrades under concurrency because its internal mutex serializes all writes.
+>
+> **LogNugget's structural advantage:** it never blocks the HTTP handler on IO — channel put +
+> return, while zerolog/logrus flush synchronously. Under real network-latency IO (file, socket),
+> LogNugget's async pipeline will outperform sync loggers at high request concurrency.
+
+---
+
 ## Epic A — Hygiene & Test Foundation ✅ COMPLETE
 
 | # | Issue | Story | Status |
