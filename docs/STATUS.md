@@ -1,7 +1,7 @@
-# LogNugget v1 — Live Status Dashboard
+# LogNugget — Live Status Dashboard
 
 > **Last updated:** 2026-05-18
-> **Branch:** `release/v1.0.0` → PR [#80](https://github.com/architagr/LogNugget/pull/80)
+> **v1.0.0:** Released ✅ — [tag v1.0.0](https://github.com/architagr/LogNugget/releases/tag/v1.0.0) · [PR #80](https://github.com/architagr/LogNugget/pull/80) (merged)
 > **Umbrella:** [#12](https://github.com/architagr/LogNugget/issues/12)
 
 ---
@@ -187,14 +187,72 @@ idempotent `Shutdown()`, zero-config `init()`, race-clean under `-race`, SC8 fan
 
 ---
 
-## Epic E — Release 🚀 IN PROGRESS
+## Epic E — Release ✅ COMPLETE
 
 | # | Issue | Story | Status |
 |---|-------|-------|--------|
 | 029 | #46 | TS-32 CI -shuffle=on + t.Parallel sweep | ✅ MERGED |
 | 030 | #47 | TS-33 CI cover ≥ 85% per package | ✅ MERGED |
 | 031 | #48 | README + context threshold + benchmark numbers | ✅ MERGED |
-| 032 | #49 | release/v1.0.0 cut + tag | 🚀 PR #80 open |
+| 032 | #49 | release/v1.0.0 cut + tag | ✅ RELEASED — tag v1.0.0 |
+
+---
+
+## Epic V2 — Performance: close the 31× throughput gap vs zerolog
+
+> **Umbrella:** [#81](https://github.com/architagr/LogNugget/issues/81)
+> **Status:** 📋 PLANNED (post-v1.0.0)
+
+### The gap
+
+| Metric | zerolog (parallel) | LogNugget (parallel) | Gap |
+| ------ | ------------------ | -------------------- | --- |
+| ns/op | ~110 | ~3,440 | 31× slower |
+| ops/sec | ~9.09 M | ~290 K | 31× fewer |
+| allocs/op | 0 | 55 | ∞ |
+| B/op | 0 | 2,909 | ∞ |
+
+### Root causes (ranked by impact)
+
+| # | Root cause | Code location | Est. savings |
+| - | ---------- | ------------- | ------------ |
+| 1 | `map[string]any` ctx iteration + `[]string` intermediate | `entry.go:249–258` | ~600 ns, ~23 allocs |
+| 2 | `interface{}` boxing in `model.LogAttr.Value` | `model/attr.go` + `entry.go:169–178` | ~30 allocs |
+| 3 | 6× `configMu.RLock` per log call | `entry.go:117,142–144,250` | ~150–250 ns |
+| 4 | Double-buffer: `en.Append(nil,buf)` + `append([]byte(nil),Data...)` | `entry.go:208`, `config.go:204` | 2 allocs |
+| 5 | Channel cap=10 blocks 8-goroutine parallel callers | `config.go:resetConfig` | blocking |
+
+### Stories
+
+| # | Issue | Story | Status |
+|---|-------|-------|--------|
+| P1 | [#82](https://github.com/architagr/LogNugget/issues/82) | Atomic minLevel + single config snapshot per call | 📋 PLANNED |
+| P2 | [#83](https://github.com/architagr/LogNugget/issues/83) | Typed field API — Str/Int/Bool/Float64 on LogEntry | 📋 PLANNED |
+| P3 | [#84](https://github.com/architagr/LogNugget/issues/84) | Append-to-buf context API — eliminate map[string]any | 📋 PLANNED |
+| P4 | [#85](https://github.com/architagr/LogNugget/issues/85) | Inline framing — eliminate en.Append double-buffer | 📋 PLANNED |
+| P5 | [#86](https://github.com/architagr/LogNugget/issues/86) | Channel capacity ≥ 1000 + configurable | 📋 PLANNED |
+
+### Where LogNugget wins today
+
+- **Filtered path:** 35 ns/op, 0 allocs → 28.6 M ops/sec (best-in-class level gate, beats zerolog's ~60 ns)
+- **Non-blocking HTTP handler:** caller never waits on IO — zerolog/logrus flush synchronously
+- **logrus:** LogNugget beats logrus on all metrics (serial: 3,630 vs 5,570 ns; parallel: 3,440 vs 6,880 ns)
+- **Under real IO:** async pipeline advantage grows with IO latency — zerolog's zero-alloc win shrinks when flushing to a real file/socket
+
+---
+
+## Epic OS — Open Source Readiness
+
+> **Umbrella:** [#87](https://github.com/architagr/LogNugget/issues/87)
+> **Status:** 📋 PLANNED (post-v1.0.0)
+
+| # | Issue | Story | Status |
+|---|-------|-------|--------|
+| OS1 | [#88](https://github.com/architagr/LogNugget/issues/88) | CONTRIBUTING.md + PR/issue templates + CoC | 📋 PLANNED |
+| OS2 | [#89](https://github.com/architagr/LogNugget/issues/89) | SECURITY.md + vulnerability reporting | 📋 PLANNED |
+| OS3 | [#90](https://github.com/architagr/LogNugget/issues/90) | golangci-lint config + GitHub Actions CI | 📋 PLANNED |
+| OS4 | [#91](https://github.com/architagr/LogNugget/issues/91) | godoc audit — all exported symbols documented | 📋 PLANNED |
+| OS5 | [#92](https://github.com/architagr/LogNugget/issues/92) | API stability contract + CHANGELOG | 📋 PLANNED |
 
 ---
 
