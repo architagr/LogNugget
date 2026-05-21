@@ -31,13 +31,15 @@ func Test_SetChannelCapacity_ValidValue(t *testing.T) {
 	config.SetChannelCapacity(5000)
 	assert.Equal(t, 5000, config.GetChannelCapacity())
 	t.Cleanup(config.TestResetChannelCapacity)
+	t.Cleanup(config.TestResetConfig)
 }
 
 func Test_SetChannelCapacity_ZeroClamped(t *testing.T) {
 	resetCapacity(t)
 	var buf bytes.Buffer
+	prev := log.Writer()
 	log.SetOutput(&buf)
-	t.Cleanup(func() { log.SetOutput(nil) })
+	t.Cleanup(func() { log.SetOutput(prev) })
 
 	config.SetChannelCapacity(0)
 	assert.Equal(t, 1000, config.GetChannelCapacity(), "zero must clamp to 1000")
@@ -47,8 +49,9 @@ func Test_SetChannelCapacity_ZeroClamped(t *testing.T) {
 func Test_SetChannelCapacity_NegativeClamped(t *testing.T) {
 	resetCapacity(t)
 	var buf bytes.Buffer
+	prev := log.Writer()
 	log.SetOutput(&buf)
-	t.Cleanup(func() { log.SetOutput(nil) })
+	t.Cleanup(func() { log.SetOutput(prev) })
 
 	config.SetChannelCapacity(-5)
 	assert.Equal(t, 1000, config.GetChannelCapacity(), "negative must clamp to 1000")
@@ -58,8 +61,9 @@ func Test_SetChannelCapacity_NegativeClamped(t *testing.T) {
 func Test_SetChannelCapacity_OverMaxClamped(t *testing.T) {
 	resetCapacity(t)
 	var buf bytes.Buffer
+	prev := log.Writer()
 	log.SetOutput(&buf)
-	t.Cleanup(func() { log.SetOutput(nil) })
+	t.Cleanup(func() { log.SetOutput(prev) })
 
 	config.SetChannelCapacity(200_000)
 	assert.Equal(t, 100_000, config.GetChannelCapacity(), "over-max must clamp to 100_000")
