@@ -26,9 +26,20 @@ var ErrUnknownEncoder = errors.New("unknown encoder type")
 //
 // Name returns a stable, non-empty identifier for the encoder (e.g. "json",
 // "text") suitable for logging and metrics labels.
+//
+// OpenBytes returns the constant bytes that open an encoded log record (e.g.
+// `{` for JSON). The returned slice is immutable; callers must not modify it.
+// P4 will use OpenBytes and CloseBytes to build streaming encoders; P1 adds
+// these stubs so GetHotSnapshot can pre-fetch them once per call, outside the
+// configMu lock.
+//
+// CloseBytes returns the constant bytes that close an encoded log record (e.g.
+// `}\n` for JSON). The returned slice is immutable; callers must not modify it.
 type Encoder interface {
 	Append(dst, body []byte) []byte
 	Name() string
+	OpenBytes() []byte
+	CloseBytes() []byte
 }
 
 // DefaultEncoderFactory returns the Encoder for the given LogEncodeType.

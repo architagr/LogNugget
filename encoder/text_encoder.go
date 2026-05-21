@@ -26,3 +26,15 @@ func (e *TextEncoder) Append(dst, body []byte) []byte {
 func (e *TextEncoder) Name() string {
 	return "text"
 }
+
+// closeBytesText is the constant line-terminator for a text log record.
+// why: package-level var avoids allocating a new slice on every CloseBytes call.
+var closeBytesText = []byte{'\n'}
+
+// OpenBytes returns nil for the text encoder because text records have no
+// opening delimiter.
+func (e *TextEncoder) OpenBytes() []byte { return nil }
+
+// CloseBytes returns `\n`, the newline that terminates a text log record.
+// The returned slice is immutable; callers must not modify it.
+func (e *TextEncoder) CloseBytes() []byte { return closeBytesText }

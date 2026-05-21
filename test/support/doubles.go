@@ -175,6 +175,12 @@ func (s *StubEncoder) Append(dst, body []byte) []byte {
 // Name returns "stub".
 func (s *StubEncoder) Name() string { return "stub" }
 
+// OpenBytes returns nil; the stub encoder has no opening delimiter.
+func (s *StubEncoder) OpenBytes() []byte { return nil }
+
+// CloseBytes returns a single newline, mirroring the stub Append behaviour.
+func (s *StubEncoder) CloseBytes() []byte { return []byte{'\n'} }
+
 // Calls returns the recorded Append body inputs in call order.
 func (s *StubEncoder) Calls() []string {
 	s.mu.Lock()
