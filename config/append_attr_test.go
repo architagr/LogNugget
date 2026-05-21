@@ -3,6 +3,7 @@
 package config_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/architagr/lognugget/config"
@@ -77,5 +78,22 @@ func Test_AppendAttr_Int_ZeroAlloc(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Errorf("AppendAttr Int allocs=%.0f want 0", allocs)
+	}
+}
+
+// Test_AppendAttr_Float64_NaN verifies that NaN is serialised as JSON null
+// (JSON does not allow NaN as a literal value).
+func Test_AppendAttr_Float64_NaN(t *testing.T) {
+	got := string(config.AppendAttr(nil, "f", model.Float64("f", math.NaN())))
+	if got != `"f":null` {
+		t.Errorf("got %q want %q", got, `"f":null`)
+	}
+}
+
+// Test_AppendAttr_Float64_Inf verifies that ±Inf is serialised as JSON null.
+func Test_AppendAttr_Float64_Inf(t *testing.T) {
+	got := string(config.AppendAttr(nil, "f", model.Float64("f", math.Inf(1))))
+	if got != `"f":null` {
+		t.Errorf("got %q want %q", got, `"f":null`)
 	}
 }

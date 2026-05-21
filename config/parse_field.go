@@ -258,6 +258,12 @@ func AppendAttr(dst []byte, key string, attr model.LogAttr) []byte {
 			dst = strconv.AppendInt(dst, v, 10)
 		case uint:
 			dst = strconv.AppendUint(dst, uint64(v), 10)
+		case uint8:
+			dst = strconv.AppendUint(dst, uint64(v), 10)
+		case uint16:
+			dst = strconv.AppendUint(dst, uint64(v), 10)
+		case uint32:
+			dst = strconv.AppendUint(dst, uint64(v), 10)
 		case uint64:
 			dst = strconv.AppendUint(dst, v, 10)
 		case float32:
