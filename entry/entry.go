@@ -181,7 +181,11 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 			key = config.DefaultPrefix + key
 		}
 		e.buf = append(e.buf, ',')
-		e.buf = config.AppendField(e.buf, key, field.Value)
+		// why: AppendAttr dispatches by kind — typed attrs (KindStr, KindInt, etc.)
+		// are serialised without any interface{} boxing, eliminating a heap alloc
+		// per field on the hot path (Epic V2 P2). KindAny falls back to the legacy
+		// AppendField-equivalent type switch for backward compatibility.
+		e.buf = config.AppendAttr(e.buf, key, field)
 	}
 
 	// Context fields — legacy map path. P3 will add the appender path that
