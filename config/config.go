@@ -14,6 +14,7 @@ package config
 import (
 	"context"
 	"io"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -34,7 +35,7 @@ var (
 	DefaultAddSource  bool      = false
 	DefaultOutput     io.Writer = os.Stdout    // Default output writer
 	DefaultTimeFormat string    = time.RFC3339 // Default time format for log entries
-	DafaultLogBuffer  int       = 20           // Default buffer size for logs
+	DafaultLogBuffer  int       = 1000         // Default buffer size for logs
 	DefaultPrefix     string    = "custom."
 )
 
@@ -52,6 +53,16 @@ var atomicMinLevel atomic.Int64
 // store is lossless. If LogLevel ever widens beyond int64 this line will
 // produce a compile error, not a silent data truncation.
 var _ int64 = int64(enum.LevelFatal)
+
+// channelCapacity is the buffer size used when resetConfig creates the
+// dispatch channel. Set via SetChannelCapacity before init() fires.
+// Range: [1, 100_000]; values outside this range are clamped with a warning.
+// Stored as atomic.Int64 so concurrent test helpers can write it safely under -race.
+var channelCapacity atomic.Int64
+
+const channelCapacityMax = 100_000
+
+func init() { channelCapacity.Store(int64(DafaultLogBuffer)) }
 
 // ContextFieldsAppender is a function that appends per-request context fields
 // directly to dst as pre-serialised bytes and returns the extended slice.
@@ -481,6 +492,32 @@ func SetContextFieldsAppender(appender ContextFieldsAppender) {
 	defaultConfig.contextAppender = appender
 }
 
+// SetChannelCapacity sets the buffer size for the dispatch channel created by
+// the next resetConfig call. Must be called before init() fires (Go
+// init-ordering guarantee) and before InitPreProcessors. No configMu needed —
+// the variable is written once at startup, read once in resetConfig.
+//
+// Values ≤ 0 are clamped to DafaultLogBuffer (1000); values > 100_000 are
+// clamped to 100_000. A log.Printf warning is emitted for out-of-range values.
+func SetChannelCapacity(n int) {
+	if n <= 0 || n > channelCapacityMax {
+		log.Printf("SetChannelCapacity(%d): out of range [1, %d]; clamping to default %d", n, channelCapacityMax, DafaultLogBuffer)
+		if n > channelCapacityMax {
+			channelCapacity.Store(int64(channelCapacityMax))
+		} else {
+			channelCapacity.Store(int64(DafaultLogBuffer))
+		}
+		return
+	}
+	channelCapacity.Store(int64(n))
+}
+
+// GetChannelCapacity returns the current channel capacity value.
+// Exposed for testing; not intended for production use.
+func GetChannelCapacity() int {
+	return int(channelCapacity.Load())
+}
+
 // RegisterHook registers hook to be invoked whenever a log event at
 // level is dispatched. Safe for concurrent use.
 func RegisterHook(level enum.LogLevel, hook PublishLogMessageHookContract) {
@@ -586,7 +623,7 @@ func ProcessLogEvent() {
 func resetConfig() {
 	// Build the new config and channel before acquiring the lock to
 	// minimise lock-hold time — encoder factory can take allocations.
-	newCh := make(chan LogEvent, 10)
+	newCh := make(chan LogEvent, int(channelCapacity.Load()))
 	encoderObj := encoder.DefaultEncoderFactory(enum.EncoderJSON)
 	newCfg := &Config{
 		minLevel:           DafaultLevel,
