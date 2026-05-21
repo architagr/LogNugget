@@ -201,7 +201,7 @@ idempotent `Shutdown()`, zero-config `init()`, race-clean under `-race`, SC8 fan
 ## Epic V2 — Performance: close the 31× throughput gap vs zerolog
 
 > **Umbrella:** [#81](https://github.com/architagr/LogNugget/issues/81)
-> **Status:** 📋 PLANNED (post-v1.0.0)
+> **Status:** 🚧 IN PROGRESS
 
 ### The gap
 
@@ -226,7 +226,7 @@ idempotent `Shutdown()`, zero-config `init()`, race-clean under `-race`, SC8 fan
 
 | # | Issue | Story | Status |
 |---|-------|-------|--------|
-| P1 | [#82](https://github.com/architagr/LogNugget/issues/82) | Atomic minLevel + single config snapshot per call | 📋 PLANNED |
+| P1 | [#82](https://github.com/architagr/LogNugget/issues/82) | Atomic minLevel + single config snapshot per call | 🔍 IN REVIEW (PR [#94](https://github.com/architagr/LogNugget/pull/94)) |
 | P2 | [#83](https://github.com/architagr/LogNugget/issues/83) | Typed field API — Str/Int/Bool/Float64 on LogEntry | 📋 PLANNED |
 | P3 | [#84](https://github.com/architagr/LogNugget/issues/84) | Append-to-buf context API — eliminate map[string]any | 📋 PLANNED |
 | P4 | [#85](https://github.com/architagr/LogNugget/issues/85) | Inline framing — eliminate en.Append double-buffer | 📋 PLANNED |
@@ -234,7 +234,8 @@ idempotent `Shutdown()`, zero-config `init()`, race-clean under `-race`, SC8 fan
 
 ### Where LogNugget wins today
 
-- **Filtered path:** 35 ns/op, 0 allocs → 28.6 M ops/sec (best-in-class level gate, beats zerolog's ~60 ns)
+- **Filtered path (after P1):** 10 ns/op, 0 allocs → 100 M ops/sec (atomic gate, -71% from 35 ns); parallel: 2.4 ns/op (-99%)
+- **Hot path (after P1):** ~1,130 ns/op parallel (-40% from 1,880 ns), ~1,470 ns/op with 10 ctx fields (-54%)
 - **Non-blocking HTTP handler:** caller never waits on IO — zerolog/logrus flush synchronously
 - **logrus:** LogNugget beats logrus on all metrics (serial: 3,630 vs 5,570 ns; parallel: 3,440 vs 6,880 ns)
 - **Under real IO:** async pipeline advantage grows with IO latency — zerolog's zero-alloc win shrinks when flushing to a real file/socket
