@@ -2,6 +2,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
@@ -288,5 +289,43 @@ func AppendAttr(dst []byte, key string, attr model.LogAttr) []byte {
 		}
 	}
 
+	return dst
+}
+
+// ValidateAndAppendField appends `,"key":value` to dst using a pre-snapshotted
+// restrictedSet instead of acquiring configMu. Keys in restrictedSet are
+// prefixed with DefaultPrefix before encoding (same semantics as AppendField's
+// call sites in logWithSkip). Exported so the entry package and tests can use
+// it without an import cycle.
+func ValidateAndAppendField(dst []byte, key string, value any, restrictedSet map[string]struct{}) []byte {
+	k := key
+	if _, restricted := restrictedSet[k]; restricted {
+		k = DefaultPrefix + k
+	}
+	dst = append(dst, ',')
+	return AppendField(dst, k, value)
+}
+
+// AppendContextFields writes per-request context fields to dst and returns the
+// extended slice. When a ContextFieldsAppender is registered it is called
+// directly (zero intermediate allocations). Otherwise the legacy
+// ContextFieldsParser path is used (allocates a map, but acquires no extra
+// configMu locks — restricted-key checks use snap.RestrictedFields).
+//
+// If ctx is nil both paths are skipped and dst is returned unchanged.
+func AppendContextFields(ctx context.Context, dst []byte, snap HotSnapshot) []byte {
+	if ctx == nil {
+		return dst
+	}
+	if snap.ContextAppender != nil {
+		// why: appender writes directly into dst — zero map/slice allocations.
+		// Parser is intentionally NOT called when appender is registered (P3 AC-1).
+		return snap.ContextAppender(ctx, dst)
+	}
+	if snap.ContextParser != nil {
+		for key, value := range snap.ContextParser(ctx) {
+			dst = ValidateAndAppendField(dst, string(key), value, snap.RestrictedFields)
+		}
+	}
 	return dst
 }

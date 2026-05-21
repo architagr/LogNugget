@@ -57,8 +57,19 @@ var _ int64 = int64(enum.LevelFatal)
 // directly to dst as pre-serialised bytes and returns the extended slice.
 // It is the high-performance alternative to ContextFieldsParser: the appender
 // writes straight into the log-line buffer without allocating an intermediate
-// map. P3 will wire this type into SetContextFieldsAppender; P1 declares it
-// here so HotSnapshot can carry the field without a forward-reference cycle.
+// map.
+//
+// Security contract: the caller is solely responsible for RFC 8259 escaping.
+// Appending raw user-controlled bytes (e.g. unescaped string values) without
+// using AppendQuotedString or AppendField can introduce log-injection
+// vulnerabilities. Each field must be formatted as ,"key":value where key and
+// string values are JSON-escaped. Use config.AppendQuotedString for strings.
+//
+// Collision note: the appender path bypasses the reserved-key collision check
+// performed by logWithSkip for variadic fields. If an appender writes a key
+// that collides with a reserved default key (time, level, message, error,
+// caller), the resulting JSON will have a duplicate key; behaviour on
+// duplicate-key JSON is consumer-defined. Use distinct key names to avoid this.
 type ContextFieldsAppender = func(ctx context.Context, dst []byte) []byte
 
 // HotSnapshot is an immutable, lock-free view of the config fields consumed

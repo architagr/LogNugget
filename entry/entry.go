@@ -208,18 +208,10 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 		e.pendingBuf = e.pendingBuf[:0]
 	}
 
-	// Context fields — legacy map path. P3 will add the appender path that
-	// writes directly into e.buf without the intermediate map allocation.
-	if ctx != nil && snap.ContextParser != nil {
-		for key, value := range snap.ContextParser(ctx) {
-			k := string(key)
-			if _, restricted := snap.RestrictedFields[k]; restricted {
-				k = config.DefaultPrefix + k
-			}
-			e.buf = append(e.buf, ',')
-			e.buf = config.AppendField(e.buf, k, value)
-		}
-	}
+	// Context fields — AppendContextFields dispatches to the zero-alloc
+	// ContextAppender when registered, or falls back to the legacy parser path.
+	// Both paths use snap.RestrictedFields so no extra configMu lock is needed.
+	e.buf = config.AppendContextFields(ctx, e.buf, snap)
 
 	if err != nil {
 		e.buf = append(e.buf, ',')
