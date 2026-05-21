@@ -39,3 +39,17 @@ Replace the 6× `configMu.RLock` acquisitions per hot-path call with one atomic 
 - `BenchmarkLogEntry_FilteredPath` is the regression guard for the filtered path. It must not exceed 35 ns/op at any point in the story PR review cycle.
 - `BenchmarkLogEntry_HotPath_NoCtx` (no context fields, no static fields) establishes the post-P1 baseline for P2–P4 to beat.
 - `b.ReportAllocs()` required in both benchmarks.
+
+## Assignment
+
+Assigned to: agent-engineer
+Branch: feat/82-p1-atomic-min-level
+Target PR: feat/81-v2-performance
+Date: 2026-05-21
+PL instruction: Write tests FIRST on feat/82-p1-atomic-min-level. Present test suite before writing any implementation code. Tests must cover:
+
+- Filtered path 0 allocs 0 locks (AllocsPerRun)
+- GetAtomicMinLevel() returns correct level after SetMinLevel
+- GetHotSnapshot() returns all hot-path fields under single RLock
+- GetHotSnapshot().RestrictedFields includes default reserved keys
+Tests must pass `go test -tags testing -run TestXxx ./config/ ./entry/` before any implementation.
