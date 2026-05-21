@@ -227,7 +227,7 @@ idempotent `Shutdown()`, zero-config `init()`, race-clean under `-race`, SC8 fan
 | # | Issue | Story | Status |
 |---|-------|-------|--------|
 | P1 | [#82](https://github.com/architagr/LogNugget/issues/82) | Atomic minLevel + single config snapshot per call | ✅ DONE (PR [#94](https://github.com/architagr/LogNugget/pull/94)) |
-| P2 | [#83](https://github.com/architagr/LogNugget/issues/83) | Typed field API — Str/Int/Bool/Float64 on LogEntry | 📋 PLANNED |
+| P2 | [#83](https://github.com/architagr/LogNugget/issues/83) | Typed field API — Str/Int/Bool/Float64 on LogEntry | 🔍 IN REVIEW (PR [#95](https://github.com/architagr/LogNugget/pull/95)) |
 | P3 | [#84](https://github.com/architagr/LogNugget/issues/84) | Append-to-buf context API — eliminate map[string]any | 📋 PLANNED |
 | P4 | [#85](https://github.com/architagr/LogNugget/issues/85) | Inline framing — eliminate en.Append double-buffer | 📋 PLANNED |
 | P5 | [#86](https://github.com/architagr/LogNugget/issues/86) | Channel capacity ≥ 1000 + configurable | 📋 PLANNED |
