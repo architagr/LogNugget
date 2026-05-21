@@ -6,6 +6,7 @@
 package config_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/architagr/lognugget/config"
@@ -67,5 +68,61 @@ func Test_GetHotSnapshot_RestrictedFieldsIncludesDefaults(t *testing.T) {
 		if _, ok := snap.RestrictedFields[key]; !ok {
 			t.Errorf("RestrictedFields missing %q", key)
 		}
+	}
+}
+
+// Test_SetContextFieldsAppender_Stored asserts that SetContextFieldsAppender
+// stores the appender so GetHotSnapshot surfaces it as a non-nil ContextAppender.
+func Test_SetContextFieldsAppender_Stored(t *testing.T) {
+	config.TestResetConfig()
+	var called bool
+	config.SetContextFieldsAppender(func(ctx context.Context, dst []byte) []byte {
+		called = true
+		return append(dst, `,"svc":"test"`...)
+	})
+	snap := config.GetHotSnapshot()
+	if snap.ContextAppender == nil {
+		t.Fatal("ContextAppender should not be nil after SetContextFieldsAppender")
+	}
+	_ = snap.ContextAppender(context.Background(), nil)
+	if !called {
+		t.Error("appender was not called")
+	}
+}
+
+// Test_AtomicMinLevel_ConsistentWithConfig asserts that GetAtomicMinLevel
+// returns the exact level set via SetMinLevel for all defined levels.
+func Test_AtomicMinLevel_ConsistentWithConfig(t *testing.T) {
+	for _, level := range []enum.LogLevel{enum.LevelDebug, enum.LevelInfo, enum.LevelWarn, enum.LevelError} {
+		config.TestResetConfig()
+		config.SetMinLevel(level)
+		if got := config.GetAtomicMinLevel(); got != level {
+			t.Errorf("level=%v: GetAtomicMinLevel()=%v, want %v", level, got, level)
+		}
+	}
+}
+
+// Test_HotSnapshot_Fields asserts that a fresh GetHotSnapshot after reset
+// contains non-nil/non-empty values for every mandatory hot-path field.
+func Test_HotSnapshot_Fields(t *testing.T) {
+	config.TestResetConfig()
+	snap := config.GetHotSnapshot()
+	if snap.DefaultFields == nil {
+		t.Error("DefaultFields should not be nil")
+	}
+	if snap.Rendered == nil {
+		t.Error("Rendered should not be nil")
+	}
+	if snap.RestrictedFields == nil {
+		t.Error("RestrictedFields should not be nil")
+	}
+	if snap.Encoder == nil {
+		t.Error("Encoder should not be nil")
+	}
+	if snap.EncoderOpen == nil && snap.EncoderClose == nil {
+		t.Error("EncoderOpen and EncoderClose both nil — JSON encoder should return non-nil")
+	}
+	if snap.TimeFormat == "" {
+		t.Error("TimeFormat should not be empty")
 	}
 }

@@ -6,6 +6,7 @@
 package config_test
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/architagr/lognugget/config"
@@ -25,4 +26,23 @@ func Test_GetAtomicMinLevel_ZeroAlloc(t *testing.T) {
 	if allocs != 0 {
 		t.Errorf("GetAtomicMinLevel() allocated %.0f times, want 0", allocs)
 	}
+}
+
+// Test_AtomicMinLevel_RaceWithSetMinLevel hammers SetMinLevel and
+// GetAtomicMinLevel from 8 concurrent goroutines to verify the
+// implementation is free of data races under the Go race detector.
+func Test_AtomicMinLevel_RaceWithSetMinLevel(t *testing.T) {
+	config.TestResetConfig()
+	// Hammer SetMinLevel + GetAtomicMinLevel concurrently — must not race.
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			levels := []enum.LogLevel{enum.LevelDebug, enum.LevelInfo, enum.LevelWarn, enum.LevelError}
+			config.SetMinLevel(levels[i%len(levels)])
+			_ = config.GetAtomicMinLevel()
+		}(i)
+	}
+	wg.Wait()
 }

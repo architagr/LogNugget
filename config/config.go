@@ -125,16 +125,16 @@ func GetAtomicMinLevel() enum.LogLevel {
 func GetHotSnapshot() HotSnapshot {
 	configMu.RLock()
 	snap := HotSnapshot{
-		AddSource:       defaultConfig.addSource,
-		TimeFormat:      defaultConfig.timeFormat,
-		DefaultFields:   defaultConfig.defaultFields,
-		Rendered:        defaultConfig.defaultFieldsRendered,
-		StaticFields:    defaultConfig.parsedStaticFields,
-		ContextParser:   defaultConfig.contextParser,
-		ContextAppender: defaultConfig.contextAppender,
-		Encoder:         defaultConfig.encoderObj,
-		EncoderType:     defaultConfig.encoderType,
-		RestrictedFields: restrictedFieldsSet,
+		AddSource:        defaultConfig.addSource,
+		TimeFormat:       defaultConfig.timeFormat,
+		DefaultFields:    defaultConfig.defaultFields,    // DO NOT MUTATE — shared reference
+		Rendered:         defaultConfig.defaultFieldsRendered, // DO NOT MUTATE — shared reference
+		StaticFields:     defaultConfig.parsedStaticFields,
+		ContextParser:    defaultConfig.contextParser,
+		ContextAppender:  defaultConfig.contextAppender,
+		Encoder:          defaultConfig.encoderObj,
+		EncoderType:      defaultConfig.encoderType,
+		RestrictedFields: restrictedFieldsSet, // DO NOT MUTATE — shared reference
 	}
 	configMu.RUnlock()
 	// Call encoder methods outside the lock — they return package-level
@@ -458,6 +458,16 @@ func SetContextFieldsParser(parser ContextFieldsParser) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.contextParser = parser
+}
+
+// SetContextFieldsAppender sets the zero-alloc context field writer.
+// When set, it takes precedence over any ContextFieldsParser on the hot path.
+// The appender receives the entry buffer and must append ,key:value fragments
+// for each context field, returning the extended buffer. Safe for concurrent use.
+func SetContextFieldsAppender(appender ContextFieldsAppender) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	defaultConfig.contextAppender = appender
 }
 
 // RegisterHook registers hook to be invoked whenever a log event at
