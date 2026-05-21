@@ -163,12 +163,11 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 		}
 	}
 
-	// why: reuse pooled buf instead of make([]byte, 0, 256) per call.
-	// The backing array was pre-grown to initBufCap (1 KB) at pool construction
-	// and is reset to len=0 (not nil) on each pool cycle, so no allocation
-	// occurs on the hot path for log lines that fit within the capacity.
-	// D-6 / F27 / ARCH-8.
-	e.buf = e.buf[:0]
+	// why: prepend the encoder's opening bytes (e.g. `{` for JSON) directly into
+	// e.buf instead of allocating a new buffer via Encoder.Append(nil, body).
+	// snap.EncoderOpen is pre-fetched in GetHotSnapshot (outside configMu) so
+	// this append performs zero locks. D-6 / F27 / ARCH-8 / Epic V2 P4.
+	e.buf = append(e.buf[:0], snap.EncoderOpen...)
 
 	// why: append the pre-rendered `"key":` prefix bytes directly instead of
 	// calling AppendField, which would re-encode the key string on every call.
@@ -228,12 +227,18 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 		e.buf = append(e.buf, snap.StaticFields...)
 	}
 
-	// why: snap.Encoder.Append(nil, e.buf) allocates a fresh []byte for the
-	// encoded log line (wraps body in {…}\n). byteData does not share the
-	// backing array with e.buf, so it is safe to Put e immediately after
-	// (D-6 / ARCH-7 explicit-copy step).
-	byteData := snap.Encoder.Append(nil, e.buf)
-	config.PublishLog(level, byteData)
+	// why: append closing bytes (e.g. `}\n` for JSON) directly into e.buf —
+	// no intermediate allocation. Then transfer ownership of e.buf to the
+	// channel by severing the pool alias: replace e.buf with a fresh
+	// make([]byte, 0, initBufCap) so that reset() in e.Put() retains this
+	// new backing array (not the one handed to PublishLog). ProcessLogEvent
+	// reads Data asynchronously; after the transfer the pool goroutine and the
+	// consumer goroutine each own separate backing arrays — no data race.
+	// Eliminates 2 allocs per call vs pre-P4 (en.Append + dataCopy). P4.
+	e.buf = append(e.buf, snap.EncoderClose...)
+	data := e.buf
+	e.buf = make([]byte, 0, initBufCap)
+	config.PublishLog(level, data)
 	e.Put()
 }
 
