@@ -75,11 +75,11 @@ func (e *LogEntry) reset() {
 // after publishing; callers should not invoke it directly unless they abandon
 // an entry without logging.
 //
-// Safety after PublishLog: by the time Put is called, the encoded bytes have
-// already been passed to config.PublishLog, which copies them into a fresh
-// []byte before sending the LogEvent onto the dispatch channel (ARCH-7). The
-// backing array of the encoder's output buffer therefore has no live readers;
-// Put (and any subsequent pool reuse) cannot race with ProcessLogEvent.
+// Safety after PublishLog (P4 ownership-transfer model): logWithSkip transfers
+// ownership of e.buf to config.PublishLog by severing the alias before calling
+// Put — the slice sent to the channel is a distinct allocation from the buffer
+// retained by the pool. Put therefore cannot race with ProcessLogEvent reading
+// the dispatched bytes.
 func (e *LogEntry) Put() {
 	entryPool.Put(e)
 }
@@ -135,7 +135,7 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 		e.Put()
 		return
 	}
-	if config.EventPreProcessors == nil {
+	if !config.HasEventPreProcessors() {
 		e.Put()
 		return
 	}

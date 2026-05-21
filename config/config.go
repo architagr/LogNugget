@@ -244,6 +244,17 @@ func AddPreProcessors(observers ...preProcessingObserverContract) {
 	}
 }
 
+// HasEventPreProcessors reports whether at least one pre-processor is
+// registered. It acquires configMu.RLock so it is safe for concurrent use and
+// produces no data races. The hot path in logWithSkip calls this instead of
+// reading EventPreProcessors directly (which is an unsynchronised map access).
+func HasEventPreProcessors() bool {
+	configMu.RLock()
+	n := len(EventPreProcessors)
+	configMu.RUnlock()
+	return n > 0
+}
+
 // RemovePreProcessor deletes the named pre-processor from the global map.
 // It is safe to call concurrently.
 func RemovePreProcessor(name string) {
