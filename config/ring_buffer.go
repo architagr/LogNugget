@@ -33,11 +33,11 @@ type ringSlot struct {
 // Each field group is padded to its own cache line to prevent the producers'
 // tail pointer from interfering with the consumer's head pointer.
 type mpscRingBuffer struct {
-	_pad0 [64]byte      // isolate from adjacent heap objects
+	_     [64]byte      // isolate from adjacent heap objects
 	tail  atomic.Uint64 // fetch-and-add by producers
-	_pad1 [56]byte      // pad tail to its own 64-byte cache line
+	_     [56]byte      // pad tail to its own 64-byte cache line
 	head  atomic.Uint64 // load/store by the consumer only
-	_pad2 [56]byte      // pad head to its own 64-byte cache line
+	_     [56]byte      // pad head to its own 64-byte cache line
 	slots [ringSize]ringSlot
 }
 

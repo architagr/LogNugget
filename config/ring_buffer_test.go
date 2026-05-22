@@ -88,7 +88,7 @@ func Test_RingBuffer_Full_Spins(t *testing.T) {
 // (must be run with go test -race) and all events are received.
 func Test_RingBuffer_MPSC_Race(t *testing.T) {
 	const (
-		producers  = 8
+		producers   = 8
 		perProducer = 1000
 		total       = producers * perProducer
 	)
@@ -165,8 +165,8 @@ func Test_RingBuffer_DrainOnStop(t *testing.T) {
 
 type testCounterProc struct{ n *atomic.Int64 }
 
-func (c *testCounterProc) Name() string                           { return "counter" }
-func (c *testCounterProc) PreProcess(_ enum.LogLevel, _ []byte)  { c.n.Add(1) }
+func (c *testCounterProc) Name() string                         { return "counter" }
+func (c *testCounterProc) PreProcess(_ enum.LogLevel, _ []byte) { c.n.Add(1) }
 
 // Test_RingBuffer_Len verifies Len() returns 0 on empty and ringSize on full.
 func Test_RingBuffer_Len(t *testing.T) {
