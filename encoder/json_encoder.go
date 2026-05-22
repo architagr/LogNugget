@@ -99,3 +99,19 @@ func (e *JSONEncoder) Append(dst, body []byte) []byte {
 func (e *JSONEncoder) Name() string {
 	return "json"
 }
+
+// openBytesJSON is the constant opening byte for a JSON log record.
+// why: package-level var avoids allocating a new slice on every OpenBytes call.
+var openBytesJSON = []byte{'{'}
+
+// closeBytesJSON is the constant closing bytes for a JSON log record.
+// why: package-level var avoids allocating a new slice on every CloseBytes call.
+var closeBytesJSON = []byte{'}', '\n'}
+
+// OpenBytes returns the single `{` byte that opens a JSON object.
+// The returned slice is immutable; callers must not modify it.
+func (e *JSONEncoder) OpenBytes() []byte { return openBytesJSON }
+
+// CloseBytes returns `}\n`, the bytes that close a JSON object and terminate
+// the log line. The returned slice is immutable; callers must not modify it.
+func (e *JSONEncoder) CloseBytes() []byte { return closeBytesJSON }

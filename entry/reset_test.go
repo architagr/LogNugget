@@ -15,10 +15,13 @@ func nonZeroFrame() *runtime.Frame {
 	return &runtime.Frame{Function: "pkg.SomeFunc"}
 }
 
-// bufField is the name of the intentionally-retained field in LogEntry.reset().
-// Listed here so the exhaustive test can skip it by name without hard-coding
-// an index that could silently drift if the struct layout changes.
-const bufField = "buf"
+// retainedFields lists fields that reset() intentionally retains with len=0
+// (capacity preserved) rather than zeroing to nil. Listed here so the
+// exhaustive test can skip them by name without hard-coding struct indices.
+var retainedFields = map[string]bool{
+	"buf":        true,
+	"pendingBuf": true,
+}
 
 // Test_LogEntry_ResetExhaustive verifies that reset() zeroes every field of
 // LogEntry by inspecting every struct field via reflect after a call to reset().
@@ -38,8 +41,9 @@ func Test_LogEntry_ResetExhaustive(t *testing.T) {
 	// Construct an entry directly (white-box: same package) and force all
 	// known fields to non-zero values so that a no-op reset() is caught.
 	e := &LogEntry{
-		caller: nonZeroFrame(),
-		buf:    make([]byte, 10, 1024),
+		caller:     nonZeroFrame(),
+		buf:        make([]byte, 10, 1024),
+		pendingBuf: make([]byte, 5, 256),
 	}
 
 	e.reset()
@@ -49,8 +53,8 @@ func Test_LogEntry_ResetExhaustive(t *testing.T) {
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		name := typ.Field(i).Name
-		if name == bufField {
-			// buf must be empty (len=0) but may retain backing capacity.
+		if retainedFields[name] {
+			// Retained fields must be empty (len=0) but may keep backing capacity.
 			if field.Len() != 0 {
 				t.Errorf("field %q has len=%d after reset(); must be 0", name, field.Len())
 			}

@@ -14,9 +14,11 @@ package config
 import (
 	"context"
 	"io"
+	"log"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/architagr/lognugget/encoder"
@@ -24,30 +26,177 @@ import (
 )
 
 var (
-	DafaultLevel       enum.LogLevel      = enum.LevelInfo   // Default log level
-	DafaultEncoderType enum.LogEncodeType = enum.EncoderJSON // Default encoder type
+	// DafaultLevel is the minimum log level applied when no explicit level has been set.
+	DafaultLevel enum.LogLevel = enum.LevelInfo
+	// DafaultEncoderType is the encoder format used when no explicit encoder has been set.
+	DafaultEncoderType enum.LogEncodeType = enum.EncoderJSON
 	// DefaultAddSource is the package default for whether source file/line
 	// information is appended to every log entry. It is false by design so
 	// that zero-config deployments do not pay the runtime.Callers overhead
 	// (D-7). Callers may opt in explicitly via config.SetAddSource(true).
-	DefaultAddSource  bool      = false
-	DefaultOutput     io.Writer = os.Stdout  // Default output writer
-	DefaultTimeFormat string    = time.RFC3339 // Default time format for log entries
-	DafaultLogBuffer  int       = 20          // Default buffer size for logs
-	DefaultPrefix     string    = "custom."
+	DefaultAddSource bool = false
+	// DefaultOutput is the writer used for log output when none has been configured.
+	DefaultOutput io.Writer = os.Stdout
+	// DefaultTimeFormat is the time layout applied to log entry timestamps when none has been configured.
+	DefaultTimeFormat string = time.RFC3339
+	// DafaultLogBuffer is the default channel buffer size for the log dispatch pipeline.
+	DafaultLogBuffer int = 1000
+	// DefaultPrefix is prepended to user-supplied field keys that collide with reserved log keys.
+	DefaultPrefix string = "custom."
 )
 
+// atomicMinLevel mirrors defaultConfig.minLevel as an atomic.Int64 so that
+// the level gate in entry.logWithSkip can short-circuit without acquiring
+// configMu. It is updated by SetMinLevel and resetConfig under the write lock
+// to stay consistent with the guarded copy.
+//
+// why: eliminating 2 lock calls (RLock + RUnlock for GetConfig().MinLevel())
+// on the filtered path removes ~200 ns of contention per filtered event,
+// keeping the overall call budget inside the < 1 µs SLO (Epic V2 / LLD §2.1).
+var atomicMinLevel atomic.Int64
+
+// Compile-time width guard: enum.LogLevel must fit in int64 so the atomic
+// store is lossless. If LogLevel ever widens beyond int64 this line will
+// produce a compile error, not a silent data truncation.
+var _ int64 = int64(enum.LevelFatal)
+
+// channelCapacity is the buffer size used when resetConfig creates the
+// dispatch channel. Set via SetChannelCapacity before init() fires.
+// Range: [1, 100_000]; values outside this range are clamped with a warning.
+// Stored as atomic.Int64 so concurrent test helpers can write it safely under -race.
+var channelCapacity atomic.Int64
+
+const channelCapacityMax = 100_000
+
+func init() { channelCapacity.Store(int64(DafaultLogBuffer)) }
+
+// ContextFieldsAppender is a function that appends per-request context fields
+// directly to dst as pre-serialised bytes and returns the extended slice.
+// It is the high-performance alternative to ContextFieldsParser: the appender
+// writes straight into the log-line buffer without allocating an intermediate
+// map.
+//
+// Security contract: the caller is solely responsible for RFC 8259 escaping.
+// Appending raw user-controlled bytes (e.g. unescaped string values) without
+// using AppendQuotedString or AppendField can introduce log-injection
+// vulnerabilities. Each field must be formatted as ,"key":value where key and
+// string values are JSON-escaped. Use config.AppendQuotedString for strings.
+//
+// Collision note: the appender path bypasses the reserved-key collision check
+// performed by logWithSkip for variadic fields. If an appender writes a key
+// that collides with a reserved default key (time, level, message, error,
+// caller), the resulting JSON will have a duplicate key; behaviour on
+// duplicate-key JSON is consumer-defined. Use distinct key names to avoid this.
+type ContextFieldsAppender = func(ctx context.Context, dst []byte) []byte
+
+// HotSnapshot is an immutable, lock-free view of the config fields consumed
+// by the hot log path. A single configMu.RLock in GetHotSnapshot captures all
+// fields atomically; after the snapshot is taken, callers access it without
+// any further locking.
+//
+// why: replacing 6+ individual configMu.RLock/RUnlock calls inside
+// logWithSkip with one GetHotSnapshot call reduces lock overhead from
+// ~1.2 µs to ~200 ns on a contended path (Epic V2 LLD §2.2).
+//
+// Callers must treat every field as read-only; the maps (DefaultFields,
+// Rendered, RestrictedFields) are shared references — do not mutate them.
+type HotSnapshot struct {
+	// AddSource controls whether the call-site function name is appended.
+	AddSource bool
+	// TimeFormat is the strftime-compatible time format string.
+	TimeFormat string
+	// DefaultFields maps each core log key to its configured field name.
+	DefaultFields map[enum.DefaultLogKey]string
+	// Rendered maps each core log key to its pre-rendered `"name":` bytes.
+	Rendered map[enum.DefaultLogKey][]byte
+	// StaticFields is the pre-serialised static field fragment (may be "").
+	StaticFields string
+	// ContextParser is the legacy context-field extractor (nil if unset).
+	ContextParser ContextFieldsParser
+	// ContextAppender is the high-performance context-field writer (nil if unset).
+	// P3 will set this; P1 carries the field so the struct is forward-compatible.
+	ContextAppender ContextFieldsAppender
+	// Encoder is the active log encoder (JSON or text).
+	Encoder encoder.Encoder
+	// EncoderType is the discriminator for the active encoder.
+	EncoderType enum.LogEncodeType
+	// RestrictedFields is the O(1) set of field names reserved for core keys.
+	RestrictedFields map[string]struct{}
+	// EncoderOpen is Encoder.OpenBytes() pre-fetched outside the lock.
+	EncoderOpen []byte
+	// EncoderClose is Encoder.CloseBytes() pre-fetched outside the lock.
+	EncoderClose []byte
+}
+
+// GetAtomicMinLevel returns the current minimum log level via an atomic load.
+// It never acquires configMu and performs zero heap allocations, making it
+// safe to call on every log entry without lock contention.
+//
+// why: the lock-free gate is the first guard in logWithSkip; filtered events
+// spend zero time in the scheduler waiting for a reader/writer to release
+// configMu (Epic V2 LLD §2.1 / TS-05 acceptance #4).
+func GetAtomicMinLevel() enum.LogLevel {
+	return enum.LogLevel(atomicMinLevel.Load())
+}
+
+// GetHotSnapshot captures all hot-path config fields under a single
+// configMu.RLock and returns them as a HotSnapshot. The encoder's
+// OpenBytes and CloseBytes are fetched after the lock is released because
+// they return constant slices that never change after encoder construction.
+//
+// why: one RLock per log call replaces the 6+ individual RLock/RUnlock pairs
+// that existed when logWithSkip called GetConfig().AddSource(),
+// GetConfig().DefaultFields(), etc. separately. The reduction from ~1.2 µs
+// to ~200 µs lock overhead is measured in bench-baseline.txt (Epic V2 P1).
+//
+// Callers must not mutate any map field in the returned snapshot.
+func GetHotSnapshot() HotSnapshot {
+	configMu.RLock()
+	snap := HotSnapshot{
+		AddSource:        defaultConfig.addSource,
+		TimeFormat:       defaultConfig.timeFormat,
+		DefaultFields:    defaultConfig.defaultFields,    // DO NOT MUTATE — shared reference
+		Rendered:         defaultConfig.defaultFieldsRendered, // DO NOT MUTATE — shared reference
+		StaticFields:     defaultConfig.parsedStaticFields,
+		ContextParser:    defaultConfig.contextParser,
+		ContextAppender:  defaultConfig.contextAppender,
+		Encoder:          defaultConfig.encoderObj,
+		EncoderType:      defaultConfig.encoderType,
+		RestrictedFields: restrictedFieldsSet, // DO NOT MUTATE — shared reference
+	}
+	configMu.RUnlock()
+	// Call encoder methods outside the lock — they return package-level
+	// constant slices that are written once at encoder construction and
+	// never mutated.
+	snap.EncoderOpen = snap.Encoder.OpenBytes()
+	snap.EncoderClose = snap.Encoder.CloseBytes()
+	return snap
+}
+
+// PublishLogMessageHookContract is the interface that log-level hooks must
+// implement. Hooks are registered via RegisterHook and called by the pre-processor
+// fan-out stage for every matching log event.
 type PublishLogMessageHookContract interface {
 	PublishLogMessage(entry []byte)
 	Name() string
 }
+
+// StaticEnvFieldsParser is a function that returns a map of static fields
+// to be merged into every log line at startup. Pass it to SetStaticEnvFieldsParser.
 type StaticEnvFieldsParser = func() map[string]any
+
+// ContextFieldsParser is the legacy per-request context field extractor.
+// It receives a context and returns a map of fields to merge into the log line.
+// Prefer ContextFieldsAppender for zero-allocation hot paths.
 type ContextFieldsParser = func(ctx context.Context) map[string]any
 
 func init() {
 	resetConfig()
 }
 
+// Config holds the active logger configuration. All fields are guarded by
+// configMu; use the exported Set* mutators and Get* accessors rather than
+// reading or writing fields directly.
 type Config struct {
 	minLevel              enum.LogLevel                      // Minimum log level to log
 	encoderType           enum.LogEncodeType                 // Encoder type to use for logging
@@ -58,12 +207,16 @@ type Config struct {
 	rate                  time.Duration                      // Rate to push logs to output
 	parsedStaticFields    string                             // this is the satic fields
 	contextParser         ContextFieldsParser                // Function to extract context fields
+	contextAppender       ContextFieldsAppender              // High-performance context-field writer (P3)
 	defaultFields         map[enum.DefaultLogKey]string      // Default fields to log with every entry
 	defaultFieldsRendered map[enum.DefaultLogKey][]byte      // pre-rendered `"key":` prefix bytes; populated by buildRenderedFields
 	timeFormat            string                             // Time format for log entries
 	hooks                 map[enum.LogLevel]map[string]PublishLogMessageHookContract
 }
 
+// LogEvent is a single serialised log message dispatched through the pipeline.
+// Level is used by pre-processors to route the event to matching hooks;
+// Data holds the fully encoded log line (e.g. a JSON object with a trailing newline).
 type LogEvent struct {
 	Level enum.LogLevel
 	Data  []byte
@@ -113,6 +266,17 @@ func AddPreProcessors(observers ...preProcessingObserverContract) {
 	}
 }
 
+// HasEventPreProcessors reports whether at least one pre-processor is
+// registered. It acquires configMu.RLock so it is safe for concurrent use and
+// produces no data races. The hot path in logWithSkip calls this instead of
+// reading EventPreProcessors directly (which is an unsynchronised map access).
+func HasEventPreProcessors() bool {
+	configMu.RLock()
+	n := len(EventPreProcessors)
+	configMu.RUnlock()
+	return n > 0
+}
+
 // RemovePreProcessor deletes the named pre-processor from the global map.
 // It is safe to call concurrently.
 func RemovePreProcessor(name string) {
@@ -121,12 +285,15 @@ func RemovePreProcessor(name string) {
 	delete(EventPreProcessors, name)
 }
 
-// SetMinLevel sets the minimum log level for the logger. Safe for
-// concurrent use.
+// SetMinLevel sets the minimum log level for the logger. It stores the level
+// both in defaultConfig (guarded by configMu) and in atomicMinLevel so that
+// the lock-free gate in GetAtomicMinLevel immediately observes the change.
+// Safe for concurrent use.
 func SetMinLevel(level enum.LogLevel) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.minLevel = level
+	atomicMinLevel.Store(int64(level))
 }
 
 // SetTimeFormat sets the time format for log entries. Safe for
@@ -174,40 +341,27 @@ func SetOutput(output io.Writer) {
 	defaultConfig.output = output
 }
 
-// PublishLog makes a defensive copy of Data and sends the event onto
-// the dispatch channel. Safe for concurrent use; callers block if the
-// channel buffer is full.
+// PublishLog sends Data onto the dispatch channel. Safe for concurrent use;
+// callers block if the channel buffer is full (back-pressure, F23).
 //
-// why (ARCH-7 / NF3): entry.logWithSkip passes the encoder's output
-// buffer as Data. That buffer may share backing memory with a
-// sync.Pool-owned slice that the caller returns to the pool immediately
-// after this call returns. The background ProcessLogEvent goroutine
-// reads LogEvent.Data asynchronously; without a copy, the goroutine
-// and the pool recycler race on the same backing array.
+// why (P4 ownership transfer): entry.logWithSkip now transfers ownership of
+// its pooled buf before calling PublishLog — e.buf is severed with a fresh
+// make([]byte, 0, initBufCap) and e.Put() is called only after PublishLog
+// returns. Data therefore has exclusive ownership; the background goroutine
+// (ProcessLogEvent) can read it safely without a defensive copy.
 //
-// The copy is `append([]byte(nil), Data...)` rather than a
-// bytes.Clone-style helper so the allocation is explicit and
-// auditable. It produces exactly 1 heap alloc (~len(Data) bytes) per
-// event — the accepted NF3 cost for crossing the goroutine boundary
-// safely (see bench-baseline.txt, ARCH-7 story).
-//
-// why (lock discipline): the RLock is taken only for the pointer
-// snapshot of ch, not across the send itself. resetConfig never closes
-// the old channel (see comment there), so there is no risk of a "send
-// on closed channel" panic. Releasing the RLock before the send avoids
-// holding it during a potentially blocking channel operation.
+// why (lock discipline): the RLock is taken only for the pointer snapshot of
+// ch, not across the send itself. resetConfig never closes the old channel
+// (see comment there), so there is no "send on closed channel" risk.
+// Releasing the RLock before the send avoids holding it during a potentially
+// blocking channel operation.
 func PublishLog(Level enum.LogLevel, Data []byte) {
-	// why: copy before acquiring the lock so we do not hold configMu
-	// across the allocation. The copy is safe to perform outside the
-	// lock: Data is caller-owned at this point, and the only race we
-	// guard against (pool recycling) happens after the call returns.
-	dataCopy := append([]byte(nil), Data...)
 	configMu.RLock()
 	currentCh := ch
 	configMu.RUnlock()
 	currentCh <- LogEvent{
 		Level: Level,
-		Data:  dataCopy,
+		Data:  Data,
 	}
 }
 
@@ -348,6 +502,42 @@ func SetContextFieldsParser(parser ContextFieldsParser) {
 	defaultConfig.contextParser = parser
 }
 
+// SetContextFieldsAppender sets the zero-alloc context field writer.
+// When set, it takes precedence over any ContextFieldsParser on the hot path.
+// The appender receives the entry buffer and must append ,key:value fragments
+// for each context field, returning the extended buffer. Safe for concurrent use.
+func SetContextFieldsAppender(appender ContextFieldsAppender) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	defaultConfig.contextAppender = appender
+}
+
+// SetChannelCapacity sets the buffer size for the dispatch channel created by
+// the next resetConfig call. Must be called before init() fires (Go
+// init-ordering guarantee) and before InitPreProcessors. No configMu needed —
+// the variable is written once at startup, read once in resetConfig.
+//
+// Values ≤ 0 are clamped to DafaultLogBuffer (1000); values > 100_000 are
+// clamped to 100_000. A log.Printf warning is emitted for out-of-range values.
+func SetChannelCapacity(n int) {
+	if n <= 0 || n > channelCapacityMax {
+		log.Printf("SetChannelCapacity(%d): out of range [1, %d]; clamping to default %d", n, channelCapacityMax, DafaultLogBuffer)
+		if n > channelCapacityMax {
+			channelCapacity.Store(int64(channelCapacityMax))
+		} else {
+			channelCapacity.Store(int64(DafaultLogBuffer))
+		}
+		return
+	}
+	channelCapacity.Store(int64(n))
+}
+
+// GetChannelCapacity returns the current channel capacity value.
+// Exposed for testing; not intended for production use.
+func GetChannelCapacity() int {
+	return int(channelCapacity.Load())
+}
+
 // RegisterHook registers hook to be invoked whenever a log event at
 // level is dispatched. Safe for concurrent use.
 func RegisterHook(level enum.LogLevel, hook PublishLogMessageHookContract) {
@@ -453,7 +643,7 @@ func ProcessLogEvent() {
 func resetConfig() {
 	// Build the new config and channel before acquiring the lock to
 	// minimise lock-hold time — encoder factory can take allocations.
-	newCh := make(chan LogEvent, 10)
+	newCh := make(chan LogEvent, int(channelCapacity.Load()))
 	encoderObj := encoder.DefaultEncoderFactory(enum.EncoderJSON)
 	newCfg := &Config{
 		minLevel:           DafaultLevel,
@@ -532,6 +722,11 @@ func resetConfig() {
 	// empty (and all reserved keys un-prefixed) until the caller explicitly
 	// invoked that function.
 	restrictedFieldsSet = buildRestrictedSet(newCfg.defaultFields)
+	// why: mirror the reset level into the atomic so GetAtomicMinLevel
+	// immediately observes the default after TestResetConfig is called in
+	// tests (and at init). Without this store, the atomic would retain a
+	// stale value from a previous SetMinLevel call across test resets.
+	atomicMinLevel.Store(int64(newCfg.minLevel))
 	configMu.Unlock()
 
 	// why: the old channel is intentionally not closed here. resetConfig

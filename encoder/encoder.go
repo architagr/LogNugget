@@ -26,10 +26,37 @@ var ErrUnknownEncoder = errors.New("unknown encoder type")
 //
 // Name returns a stable, non-empty identifier for the encoder (e.g. "json",
 // "text") suitable for logging and metrics labels.
+//
+// OpenBytes returns the constant bytes that open an encoded log record (e.g.
+// `{` for JSON). The returned slice is immutable; callers must not modify it.
+// logWithSkip prepends these bytes directly into e.buf to avoid an intermediate
+// allocation (P4 inline framing).
+//
+// CloseBytes returns the constant bytes that close an encoded log record (e.g.
+// `}\n` for JSON). The returned slice is immutable; callers must not modify it.
 type Encoder interface {
 	Append(dst, body []byte) []byte
 	Name() string
+	OpenBytes() []byte
+	CloseBytes() []byte
 }
+
+// noopCloseBytesNewline is the single shared "\n" slice returned by
+// NoopFramer.CloseBytes so every call returns the same immutable bytes.
+var noopCloseBytesNewline = []byte{'\n'}
+
+// NoopFramer is an embeddable struct that provides default OpenBytes/CloseBytes
+// implementations suitable for encoder types that need no opening delimiter.
+// Embed it in a custom Encoder to avoid writing these methods from scratch:
+//
+//	type MyEncoder struct { encoder.NoopFramer; ... }
+//
+// OpenBytes returns nil (no opening bytes).
+// CloseBytes returns "\n" (universal newline terminator, ARCH-14).
+type NoopFramer struct{}
+
+func (NoopFramer) OpenBytes() []byte { return nil }
+func (NoopFramer) CloseBytes() []byte { return noopCloseBytesNewline }
 
 // DefaultEncoderFactory returns the Encoder for the given LogEncodeType.
 // For unknown types it falls back to the JSON encoder.
