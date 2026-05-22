@@ -69,24 +69,26 @@ All setters are optional. Defaults work out of the box.
 
 ---
 
-## Context Fields — Threshold Recommendation
+## Context Fields — Zero-Alloc OTel Appender (V3)
 
-**Recommended maximum: 10 values in the context object** (including trace_id and span_id).
-
-The context parser returns `map[string]any`. Iteration cost scales linearly: each extra field adds ~60 ns. At 10 fields, the context-parsing step costs ~600 ns — still within the target budget. Beyond 10, context overhead dominates.
+Use `SetContextFieldsAppender` for zero-alloc context injection. The appender writes fields directly into the log buffer — no `map[string]any`, no interface boxing, no GC pressure.
 
 ```go
-// Optimal: 10 fields including 2 tracing fields
-config.SetContextFieldsParser(func(ctx context.Context) map[string]any {
-    return map[string]any{
-        "trace_id":   extractTraceID(ctx),   // OTel tracing
-        "span_id":    extractSpanID(ctx),    // OTel tracing
-        "request_id": extractRequestID(ctx),
-        "user_id":    extractUserID(ctx),
-        // up to 6 more application-specific fields
+// V3 recommended: zero-alloc appender (OTel trace/span IDs + request fields)
+config.SetContextFieldsAppender(func(ctx context.Context, dst []byte) []byte {
+    span := trace.SpanFromContext(ctx)
+    if span.SpanContext().IsValid() {
+        dst = append(dst, `,"trace_id":"`...)
+        dst = append(dst, span.SpanContext().TraceID().String()...)
+        dst = append(dst, `","span_id":"`...)
+        dst = append(dst, span.SpanContext().SpanID().String()...)
+        dst = append(dst, '"')
     }
+    return dst
 })
 ```
+
+The legacy `SetContextFieldsParser` (returns `map[string]any`) is still supported but costs ~600 ns/call at 10 fields. For new code, prefer the appender. See `examples/otel-appender/` for a runnable OTel demo.
 
 ---
 
@@ -124,9 +126,9 @@ caller → entry.LogEntry.Info(ctx, msg, fields...)
            │ pool-backed, zero alloc on hot path
            ↓
         config.PublishLog(level, []byte)
-           │ copies buf, sends to ch (buffer=10)
+           │ atomicRing.Load().Push()  ← lock-free MPSC ring buffer (V3-P9)
            ↓
-        config.ProcessLogEvent()  [background goroutine]
+        config.ProcessLogEvent()  [background goroutine — spins on ring.Pop()]
            │ fans out to each EventPreProcessor
            ↓
         pipeline_stage.EventPreProcessorObj.PreProcess(level, data)
@@ -157,6 +159,7 @@ Run from `examples/bench/`: `go test -bench=. -benchmem -count=10 -run=^$`
 | Logger | ns/op | B/op | allocs/op | ~ops/sec |
 |--------|-------|------|-----------|----------|
 | **zerolog** | **~548** | **0** | **0** | **~1.82 M** |
+| **LogNugget V3** ¹ | **~865** | **~592** | **5** | **~1.16 M** |
 | LogNugget V2 ¹ | ~1,280 | 1,417 | 6 | ~781 K |
 | LogNugget v1 ¹ | ~3,630 | 2,909 | 55 | ~275 K |
 | logrus | ~5,570 | 4,857 | 58 | ~179 K |
@@ -166,6 +169,7 @@ Run from `examples/bench/`: `go test -bench=. -benchmem -count=10 -run=^$`
 | Logger | ns/op | B/op | allocs/op | ~ops/sec (total) |
 |--------|-------|------|-----------|-----------------|
 | **zerolog** | **~110** | **0** | **0** | **~9.09 M** |
+| **LogNugget V3** ¹ | **~196** | **~105** | **2** | **~5.1 M** |
 | LogNugget V2 ¹ | ~1,090 | 1,411 | 5 | ~917 K |
 | LogNugget v1 ¹ | ~3,440 | 2,909 | 55 | ~290 K |
 | logrus | ~6,880 | 4,863 | 58 | ~145 K |
@@ -176,38 +180,44 @@ Run from `examples/bench/`: `go test -bench=. -benchmem -count=10 -run=^$`
 |--------|-------|------|-----------|----------|
 | LogNugget | **~10** | **0** | **0** | **~100 M** |
 
-> ¹ **LogNugget is async** — the caller returns after a channel put; actual JSON encode and
-> `io.Write` happen on a background goroutine. The `ns/op` figures above reflect **caller-side
+> ¹ **LogNugget is async** — the caller returns after a lock-free ring-buffer push; JSON encode
+> and `io.Write` happen on a background goroutine. The `ns/op` figures above reflect **caller-side
 > cost only** (no IO wait). zerolog and logrus are **synchronous** — their numbers include full
 > JSON encoding and write to `io.Discard`.
 >
+> **V3 improvements (Epic V3, feat/111):** −82% parallel latency (1,090 → ~196 ns/op), −60% allocs
+> (5 → 2/op), −93% bytes (1,411 → ~105 B/op). Key changes: lock-free MPSC ring buffer replaces
+> Go channel, atomic pre-processor gate, copy-on-write config snapshot, OTel `ContextFieldsAppender`,
+> pre-rendered level bytes, string-native JSON escape, exact-size buffer severance.
+>
 > **V2 improvements (Epic V2, feat/81):** −68% parallel latency (3,440 → 1,090 ns/op), −91% allocs
-> (55 → 5/op). Key changes: atomic minLevel gate, single config snapshot per call, typed field API
-> (no interface boxing), zero-alloc `ContextFieldsAppender`, inline encoder framing (no double-buffer),
-> channel capacity 1000.
+> (55 → 5/op). Key changes: atomic minLevel gate, single config snapshot per call, typed field API,
+> zero-alloc `ContextFieldsAppender`, inline encoder framing, channel capacity 1000.
 >
-> **Why is zerolog still faster?** zerolog writes synchronously — no channel overhead. LogNugget's
-> ~1,090 ns/op includes amortized async channel dispatch (~600 ns). Pure encoding path benchmarks
-> (`BenchmarkAppendAttr_*`) are < 30 ns/op — comparable to zerolog's field serialization.
+> **Why is zerolog still faster on raw parallel?** zerolog writes synchronously to a pre-allocated
+> buffer — no ring-buffer overhead. Under real IO latency (file, socket), LogNugget's async pipeline
+> outperforms zerolog at high concurrency. Pure encoding benchmarks (`BenchmarkAppendAttr_*`) are
+> < 30 ns/op, comparable to zerolog's field serialization.
 >
-> **Why does logrus degrade under parallelism?** logrus uses a global mutex for concurrent
-> writes. At 8 goroutines on M1 Pro, contention raises per-op cost from ~5,570 ns to ~6,880 ns.
+> **Why does logrus degrade under parallelism?** logrus uses a global mutex — at 8 goroutines
+> contention raises per-op cost from ~5,570 to ~6,880 ns.
 
-### LogNugget internal benchmarks (V2 Baseline)
+### LogNugget internal benchmarks (V3 — current)
 
-All benchmarks from `go test -bench=. -benchmem -count=10 -run=^$ ./...` on Apple M1 Pro.
+All benchmarks from `go test -tags testing -bench=. -benchmem -count=10 -run=^$ ./...` on Apple M1 Pro, GOMAXPROCS=8.
 
 | Benchmark | ns/op | B/op | allocs/op | Notes |
 |-----------|-------|------|-----------|-------|
-| `Benchmark_Log` (serial) | ~1,280 | 1,417 | 6 | Full pipeline, no ctx fields |
-| `Benchmark_Log_Parallel_NoCtx` | ~1,090 | 1,411 | 5 | `b.RunParallel`, no ctx |
-| `Benchmark_Log_Parallel_10CtxFields` | ~1,280 | 1,738 | 7 | `b.RunParallel`, 10 ctx fields |
+| `Benchmark_Log` (serial) | **~865** | ~592 | 5 | Full pipeline, no ctx fields |
+| `Benchmark_Log_Parallel_NoCtx` | **~196** | ~105 | 2 | `b.RunParallel`, no ctx |
+| `Benchmark_Log_Parallel_10CtxFields` (OTel) | **~256** | ~313 | 2 | `b.RunParallel`, 10 OTel fields |
 | `Benchmark_Log_Filtered_BelowMinLevel` | **~10** | 0 | 0 | Fast-reject path (atomic gate) |
-| `Benchmark_Log_JSONEscape_SafeASCII` | ~1,168 | 1,410 | 5 | Pure ASCII field values |
+| `BenchmarkRingBuffer_Push` | **~88** | 0 | 0 | MPSC ring push, 8 producers |
 | `BenchmarkAppendAttr_Str` | ~25 | 0 | 0 | Per-field encoding (hot path) |
 | `BenchmarkAppendAttr_Int` | ~11 | 0 | 0 | Per-field encoding (hot path) |
 
-**Filtered path (~10 ns, 0 allocs)** — atomic level gate; serial parallel: ~2.4 ns/op, 0 allocs.
+**V3 vs V2:** parallel NoCtx −82% (1,090→196 ns/op), allocs −60% (5→2), bytes −93% (1,411→105 B/op).
+**Filtered path (~10 ns, 0 allocs)** — atomic level gate; sub-1 ns under parallel.
 
 ---
 
@@ -247,9 +257,9 @@ LogNugget supports hooks for fan-out to external systems:
 
 ---
 
-## Future Work (post v1.0.0)
+## Future Work
 
-- Pre-render context fields as `[]byte` to eliminate per-call `map[string]any` overhead.
-- OpenTelemetry integration for automated trace/span extraction.
 - Configurable log rotation strategies.
 - Structured JSON filtering for high-volume streams.
+- Adaptive ring buffer sizing (runtime-tunable capacity beyond fixed 4096 slots).
+- OpenTelemetry SDK integration package (auto-extract trace/span without manual appender).
