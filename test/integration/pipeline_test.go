@@ -1,15 +1,11 @@
 //go:build testing
 
-// Package integration: TS-25 — F21/F22/F23 backpressure via SlowHook.
-//
-// F21: config.ch is the channel through which log events flow.
-// F22: channel buffer size is 10; up to 10 events can be in-flight.
-// F23: PublishLog blocks the caller when the channel is full.
+// Package integration tests end-to-end async event delivery through the MPSC
+// ring buffer. P9 replaced the buffered chan LogEvent (TS-25 F21/F22/F23) with
+// a lock-free ring buffer; blocking-on-full semantics no longer apply.
 package integration
 
 import (
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,72 +13,6 @@ import (
 	"github.com/architagr/lognugget/enum"
 	"github.com/architagr/lognugget/test/support"
 )
-
-// Test_Integration_ChannelBuffersAndBlocks is the TS-25 integration test.
-// It verifies F21/F22/F23:
-//   - F21: events travel through config.ch to ProcessLogEvent
-//   - F22: channel buffers up to 10 events without blocking
-//   - F23: sender blocks when the channel is full and ProcessLogEvent is stuck
-//
-// Approach:
-//  1. Register a blocking preProc adapter; send 1 event to get ProcessLogEvent stuck.
-//  2. Wait for preProc to enter (entered channel signals block is live).
-//  3. Fill remaining channel capacity (bufSize-1 more events — channel is now full).
-//  4. Assert next send blocks; Release hook; assert unblocks.
-func Test_Integration_ChannelBuffersAndBlocks(t *testing.T) {
-	const bufSize = 10
-	// Set capacity to 10 and reset to apply it, then register cleanup to restore.
-	config.SetChannelCapacity(bufSize)
-	t.Cleanup(config.TestResetChannelCapacity)
-	config.TestResetConfig()
-
-	support.NewConfigBuilder(t).
-		MinLevel(enum.LevelDebug).
-		Build()
-
-	slow := support.NewSlowHook("slow")
-	entered := make(chan struct{})
-	spy := &slowPreProcSignal{hook: slow, entered: entered}
-	config.InitPreProcessors(spy)
-	payload := []byte(`{"level":"info","msg":"x"}`)
-
-	// Trigger ProcessLogEvent to pick up and block on the first event.
-	config.PublishLog(enum.LevelInfo, payload)
-
-	// Wait until the preProc is actually blocked.
-	select {
-	case <-entered:
-	case <-time.After(2 * time.Second):
-		t.Fatal("preProc never entered; ProcessLogEvent may not be running")
-	}
-
-	// Channel now has 0 items (ProcessLogEvent consumed the first one and is
-	// stuck). Fill the remaining capacity with bufSize items.
-	for i := 0; i < bufSize; i++ {
-		config.PublishLog(enum.LevelInfo, payload)
-	}
-
-	// Next send must block: channel is full and ProcessLogEvent is stuck.
-	var unblocked atomic.Bool
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		config.PublishLog(enum.LevelInfo, payload)
-		unblocked.Store(true)
-	}()
-
-	time.Sleep(80 * time.Millisecond)
-	if unblocked.Load() {
-		t.Error("F23: sender returned immediately on full channel; must block")
-	}
-
-	slow.Release()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("blocked sender did not unblock after SlowHook.Release()")
-	}
-}
 
 // Test_Integration_ChannelDrainsAsyncAfterRelease verifies that once
 // SlowHook is released, ProcessLogEvent delivers all buffered events.
@@ -114,24 +44,7 @@ func Test_Integration_ChannelDrainsAsyncAfterRelease(t *testing.T) {
 	}
 }
 
-// --- minimal preProcessingObserverContract adapters ---
-// These wrap support doubles to satisfy the unexported config interface.
-
-// slowPreProcSignal wraps SlowHook and closes entered on the first PreProcess call.
-type slowPreProcSignal struct {
-	hook    *support.SlowHook
-	entered chan struct{}
-	once    sync.Once
-}
-
-func (s *slowPreProcSignal) Name() string { return s.hook.Name() }
-func (s *slowPreProcSignal) PreProcess(_ enum.LogLevel, logMsg []byte) {
-	s.once.Do(func() { close(s.entered) })
-	s.hook.PublishLogMessage(logMsg)
-}
-
 type fakePreProc struct {
-	mu   sync.Mutex
 	hook *support.FakePostProcessor
 }
 

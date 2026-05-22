@@ -18,6 +18,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -83,24 +84,19 @@ var hasPreProcessorsAtomic atomic.Bool
 // so readers always observe a fully-initialised snapshot.
 var hotSnapshotPtr atomic.Pointer[HotSnapshot]
 
-// atomicCh holds the current dispatch channel as an atomic.Value so that
-// PublishLog can load the channel with a single memory barrier instead of
-// acquiring configMu.RLock and copying the pointer.
+// atomicRing holds the current MPSC ring buffer as an atomic pointer so that
+// PublishLog can enqueue events with a single memory barrier and a lock-free
+// Push, with no configMu acquisition on the hot path (V3-P9 / LLD §5.1).
 //
-// Invariant: atomicCh must never be nil after package init. It is stored
+// Invariant: atomicRing must never be nil after package init. It is stored
 // inside every configMu.Lock scope in resetConfig (the only site that
-// creates a new channel) so readers always observe a valid, writable channel.
-//
-// why: the former configMu.RLock + pointer copy path in PublishLog cost ~50 ns
-// per hot-path call. atomic.Value.Load is a single memory barrier with no
-// scheduler interaction, eliminating lock contention on the send path entirely
-// and completing the V3 goal of zero RLock acquisitions on the hot log path
-// (V3-P3 / LLD §5.1 / bench-baseline.txt).
-//
-// Type discipline: only chan LogEvent values are ever stored; the Load cast
-// is guarded by the invariant above. A type mismatch panic would indicate a
-// programming error (wrong type stored), not a runtime condition.
-var atomicCh atomic.Value // stores chan LogEvent; written under configMu.Lock, read without lock
+// creates a new ring) so callers of PublishLog always observe a valid ring.
+var atomicRing atomic.Pointer[mpscRingBuffer]
+
+// ringDoneCh is closed by resetConfig to signal the current ProcessLogEvent
+// goroutine to stop spinning and exit. A new channel is allocated for each
+// new ring epoch. Protected by configMu.Lock when replaced.
+var ringDoneCh chan struct{}
 
 // Compile-time width guard: enum.LogLevel must fit in int64 so the atomic
 // store is lossless. If LogLevel ever widens beyond int64 this line will
@@ -284,18 +280,15 @@ type LogEvent struct {
 
 var (
 	defaultConfig      *Config
-	ch                 chan LogEvent
 	EventPreProcessors map[string]preProcessingObserverContract
 
-	// configMu guards the three package-level globals above.
+	// configMu guards defaultConfig, EventPreProcessors, and the ring epoch.
 	//
-	// why: ProcessLogEvent reads ch and EventPreProcessors concurrently
-	// with resetConfig writing them; Set* functions write fields of
-	// defaultConfig concurrently with each other and with resetConfig.
-	// A single RWMutex is the minimal, reviewable fix for #54.
-	// RLock is taken by read-only paths (GetConfig, ProcessLogEvent) so
-	// multiple concurrent readers never block each other; write paths
-	// (Set*, resetConfig) take the exclusive Lock.
+	// why: ProcessLogEvent reads EventPreProcessors concurrently with
+	// resetConfig writing them; Set* functions write fields of defaultConfig
+	// concurrently with each other and with resetConfig. A single RWMutex is
+	// the minimal, reviewable fix for #54. RLock is taken by read-only paths;
+	// write paths (Set*, resetConfig) take the exclusive Lock.
 	configMu sync.RWMutex
 )
 
@@ -438,20 +431,14 @@ func SetOutput(output io.Writer) {
 // returns. Data therefore has exclusive ownership; the background goroutine
 // (ProcessLogEvent) can read it safely without a defensive copy.
 //
-// why (V3-P3 lock elimination): the former configMu.RLock + pointer copy was
-// replaced by a single atomic.Value.Load on atomicCh. No lock is held during
-// either the load or the channel send, completing the V3 goal of zero RLock
-// acquisitions on the hot log path (~50 ns saving per call; see
-// BenchmarkPublishLog in atomic_channel_bench_test.go and bench-baseline.txt).
-// atomicCh is always stored inside configMu.Lock in resetConfig before any
-// goroutine can call PublishLog, so the Load always returns a valid channel
-// and the type assertion never panics under correct usage.
+// why (V3-P9 ring buffer): the channel send (~130 ns under 8-goroutine
+// contention) is replaced by an atomic.Pointer load + lock-free Push on the
+// MPSC ring buffer. Multiple producers write concurrently via fetch-and-add
+// on the ring tail; no mutex is held on the hot path. atomicRing is always
+// stored inside configMu.Lock in resetConfig so the load always returns a
+// valid ring (V3-P9 / LLD §5.1).
 func PublishLog(Level enum.LogLevel, Data []byte) {
-	currentCh := atomicCh.Load().(chan LogEvent)
-	currentCh <- LogEvent{
-		Level: Level,
-		Data:  Data,
-	}
+	atomicRing.Load().Push(LogEvent{Level: Level, Data: Data})
 }
 
 // SetLogBufferMaxSize sets the maximum buffer size for logs. Values ≤ 0
@@ -618,10 +605,10 @@ func SetContextFieldsAppender(appender ContextFieldsAppender) {
 	storeHotSnapshot()
 }
 
-// SetChannelCapacity sets the buffer size for the dispatch channel created by
-// the next resetConfig call. Must be called before init() fires (Go
-// init-ordering guarantee) and before InitPreProcessors. No configMu needed —
-// the variable is written once at startup, read once in resetConfig.
+// SetChannelCapacity is retained for API compatibility. Since V3-P9 replaced
+// the buffered chan LogEvent with a fixed-size MPSC ring buffer (ringSize=4096),
+// this value is no longer used by the dispatch path and has no effect on
+// throughput or backpressure. It is safe to call but does nothing observable.
 //
 // Values ≤ 0 are clamped to DafaultLogBuffer (1000); values > 100_000 are
 // clamped to 100_000. A log.Printf warning is emitted for out-of-range values.
@@ -717,24 +704,49 @@ func GetConfig() *Config {
 	return defaultConfig
 }
 
-// ProcessLogEvent drains the dispatch channel and forwards each event
-// to every registered PreProcessor. It is started as a goroutine by
-// resetConfig and runs until the channel is closed. Safe for concurrent
-// use: it takes an RLock to snapshot the current ch and EventPreProcessors
-// values so that a concurrent resetConfig does not create a data race on
-// those globals.
+// ProcessLogEvent pops events from the MPSC ring buffer and forwards each to
+// every registered PreProcessor. It runs until ringDoneCh is closed (by the
+// next resetConfig call). On an empty ring it yields the goroutine with
+// runtime.Gosched rather than blocking, then rechecks the done signal. When
+// done is signalled the remaining ring items are drained before returning.
+//
+// why (V3-P9): replacing the channel range with a lock-free ring Pop removes
+// the channel mutex from the consumer hot path, completing the V3 sub-500 ns
+// target.
 func ProcessLogEvent() {
 	configMu.RLock()
-	currentCh := ch
+	currentRing := atomicRing.Load()
+	done := ringDoneCh
 	configMu.RUnlock()
 
-	for e := range currentCh {
-		configMu.RLock()
-		processors := EventPreProcessors
-		configMu.RUnlock()
-		for _, observer := range processors {
-			observer.PreProcess(e.Level, e.Data)
+	for {
+		e, ok := currentRing.Pop()
+		if !ok {
+			select {
+			case <-done:
+				// Drain any events written between the last Pop and the done signal.
+				for currentRing.Len() > 0 {
+					if ev, ok2 := currentRing.Pop(); ok2 {
+						dispatchEvent(ev)
+					}
+				}
+				return
+			default:
+				runtime.Gosched()
+				continue
+			}
 		}
+		dispatchEvent(e)
+	}
+}
+
+// dispatchEvent forwards e to every registered PreProcessor under a short RLock.
+func dispatchEvent(e LogEvent) {
+	configMu.RLock()
+	processors := EventPreProcessors
+	configMu.RUnlock()
+	for _, observer := range processors {
+		observer.PreProcess(e.Level, e.Data)
 	}
 }
 
@@ -752,9 +764,10 @@ func ProcessLogEvent() {
 // The old channel is closed after the pointer swap so the previous
 // ProcessLogEvent goroutine exits cleanly rather than leaking.
 func resetConfig() {
-	// Build the new config and channel before acquiring the lock to
-	// minimise lock-hold time — encoder factory can take allocations.
-	newCh := make(chan LogEvent, int(channelCapacity.Load()))
+	// Build the new ring buffer, done channel, and config before acquiring the
+	// lock to minimise lock-hold time — encoder factory can take allocations.
+	newRing := newMpscRingBuffer()
+	newDoneCh := make(chan struct{})
 	encoderObj := encoder.DefaultEncoderFactory(enum.EncoderJSON)
 	newCfg := &Config{
 		minLevel:           DafaultLevel,
@@ -822,14 +835,15 @@ func resetConfig() {
 	// is not yet visible to any other goroutine at this point.
 	newCfg.defaultFieldsRendered = buildRenderedFields(newCfg.defaultFields)
 
+	var oldDoneCh chan struct{}
 	configMu.Lock()
-	ch = newCh
-	// why: atomicCh must be stored inside the same configMu.Lock scope as ch
-	// so that any concurrent PublishLog call that loads atomicCh always sees
-	// a channel that was created within the current configuration epoch. Storing
-	// outside the lock could allow a reader to load a stale channel while
-	// resetConfig has already replaced ch (V3-P3 / LLD §5.1).
-	atomicCh.Store(newCh)
+	// why: atomicRing must be stored inside configMu.Lock so that any concurrent
+	// PublishLog that loads atomicRing always sees a ring from the current epoch.
+	// Storing outside the lock could let a reader load the stale ring while
+	// resetConfig has already replaced it (V3-P9 / LLD §5.1).
+	atomicRing.Store(newRing)
+	oldDoneCh = ringDoneCh
+	ringDoneCh = newDoneCh
 	defaultConfig = newCfg
 	EventPreProcessors = make(map[string]preProcessingObserverContract)
 	// why: mirror the reset into the atomic so HasEventPreProcessors immediately
@@ -857,17 +871,12 @@ func resetConfig() {
 	storeHotSnapshot()
 	configMu.Unlock()
 
-	// why: the old channel is intentionally not closed here. resetConfig
-	// is a test-only path (called once from init at program start; the
-	// test shim TestResetConfig calls it in unit tests only). Closing the
-	// old channel while a concurrent PublishLog might still be mid-send
-	// would require two-phase coordination that adds complexity beyond
-	// this story's scope (V3-P3 note: PublishLog no longer holds RLock,
-	// but a goroutine may be blocked on the send side of the old channel
-	// if it was pre-empted between Load and the send). The pre-existing
-	// goroutine leak (old ProcessLogEvent blocking on the unreferenced
-	// channel) is a known trade-off tracked separately; it is harmless in
-	// test binaries which exit after the test run completes.
+	// Close the old ringDoneCh (outside the lock) to signal the previous
+	// ProcessLogEvent goroutine to drain and exit. nil on the very first call
+	// from init (before any goroutine has started).
+	if oldDoneCh != nil {
+		close(oldDoneCh)
+	}
 	go ProcessLogEvent()
 }
 
