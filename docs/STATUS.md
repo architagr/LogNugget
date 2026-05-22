@@ -1,6 +1,6 @@
 # LogNugget — Live Status Dashboard
 
-> **Last updated:** 2026-05-22 (Epic OS complete)
+> **Last updated:** 2026-05-22 (Epic V3 stories created)
 > **v1.0.0:** Released ✅ — [tag v1.0.0](https://github.com/architagr/LogNugget/releases/tag/v1.0.0) · [PR #80](https://github.com/architagr/LogNugget/pull/80) (merged)
 > **Umbrella:** [#12](https://github.com/architagr/LogNugget/issues/12)
 
@@ -281,6 +281,48 @@ SLO miss (hot-path 2× over 1 µs) does NOT block v1.0.0 per project decision �
 | OS3 | [#90](https://github.com/architagr/LogNugget/issues/90) | golangci-lint config + GitHub Actions CI | ✅ DONE (PR [#101](https://github.com/architagr/LogNugget/pull/101)) |
 | OS4 | [#91](https://github.com/architagr/LogNugget/issues/91) | godoc audit — all exported symbols documented | ✅ DONE (PR [#104](https://github.com/architagr/LogNugget/pull/104)) |
 | OS5 | [#92](https://github.com/architagr/LogNugget/issues/92) | API stability contract + CHANGELOG | ✅ DONE (PR [#102](https://github.com/architagr/LogNugget/pull/102)) |
+
+---
+
+## Epic V3 — Sub-500 ns hot path + first-class OTel distributed tracing
+
+> **Umbrella:** [#111](https://github.com/architagr/LogNugget/issues/111)
+> **Status:** 🚧 IN PROGRESS — stories created, implementation not started
+
+### The gap (post-V2 baseline)
+
+| Benchmark | Current ns/op | Target ns/op | allocs current | allocs target |
+|-----------|--------------|--------------|----------------|---------------|
+| `Benchmark_Log_Parallel_NoCtx` | ~1,070 | ≤500 | 5 | ≤1 |
+| `Benchmark_Log_Parallel_10CtxFields` (OTel appender) | ~1,270 | ≤500 | 7 | ≤1 |
+
+### Root causes (ranked by impact)
+
+| # | Bottleneck | Location | Est. saving |
+|---|-----------|----------|-------------|
+| P1 | `HasEventPreProcessors()` acquires `configMu.RLock` every call | `config/config.go:273` | ~80 ns |
+| P2 | `GetHotSnapshot()` acquires `configMu.RLock` + copies 13-field struct | `config/config.go:153` | ~120 ns |
+| P3 | `PublishLog()` acquires `configMu.RLock` for channel pointer | `config/config.go:358` | ~50 ns |
+| P4 | `customTime.Format()` returns string (alloc); `AppendQuotedString` converts back to `[]byte` | `entry/entry.go:179` | ~40 ns, 2 allocs |
+| P5 | `AppendQuotedString` calls `[]byte(s)` on every string field | `config/parse_field.go:26` | ~20 ns, 2 allocs |
+| P6 | `level.String()` + `AppendQuotedString` — 5 known-constant values | `entry/entry.go:182` | ~15 ns, 1 alloc |
+| P7 | No built-in OTel support; 10-ctx benchmark uses legacy map parser | `test/benchmark/` | ~100 ns, 4 allocs |
+| P8 | Alias severance allocates 1024 B regardless of actual line size (~200 B) | `entry/entry.go:240` | ~800 B/call |
+| P9 | Go channel send under 8-goroutine contention costs ~130 ns | `config/config.go:362` | ~130 ns |
+
+### Stories
+
+| # | Issue | Story | Status |
+|---|-------|-------|--------|
+| P1 | [#112](https://github.com/architagr/LogNugget/issues/112) | atomic.Bool pre-processor gate | 🔲 TODO |
+| P2 | [#113](https://github.com/architagr/LogNugget/issues/113) | atomic.Pointer[HotSnapshot] copy-on-write snapshot | 🔲 TODO |
+| P3 | [#114](https://github.com/architagr/LogNugget/issues/114) | atomic channel pointer in PublishLog | 🔲 TODO |
+| P4 | [#115](https://github.com/architagr/LogNugget/issues/115) | AppendFormat direct timestamp (no string roundtrip) | 🔲 TODO |
+| P5 | [#116](https://github.com/architagr/LogNugget/issues/116) | appendJSONStringStr — string-native JSON escape | 🔲 TODO |
+| P6 | [#117](https://github.com/architagr/LogNugget/issues/117) | pre-rendered quoted level bytes | 🔲 TODO |
+| P7 | [#118](https://github.com/architagr/LogNugget/issues/118) | First-class OTel ContextFieldsAppender + tracing benchmark | 🔲 TODO |
+| P8 | [#119](https://github.com/architagr/LogNugget/issues/119) | exact-size buffer copy alias severance | 🔲 TODO |
+| P9 | [#120](https://github.com/architagr/LogNugget/issues/120) | lock-free MPSC ring buffer dispatch queue | 🔲 TODO |
 
 ---
 
