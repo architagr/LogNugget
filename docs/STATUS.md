@@ -1,6 +1,6 @@
 # LogNugget — Live Status Dashboard
 
-> **Last updated:** 2026-05-22
+> **Last updated:** 2026-05-22 (Epic OS complete)
 > **v1.0.0:** Released ✅ — [tag v1.0.0](https://github.com/architagr/LogNugget/releases/tag/v1.0.0) · [PR #80](https://github.com/architagr/LogNugget/pull/80) (merged)
 > **Umbrella:** [#12](https://github.com/architagr/LogNugget/issues/12)
 
@@ -272,15 +272,15 @@ SLO miss (hot-path 2× over 1 µs) does NOT block v1.0.0 per project decision �
 ## Epic OS — Open Source Readiness
 
 > **Umbrella:** [#87](https://github.com/architagr/LogNugget/issues/87)
-> **Status:** 📋 PLANNED (post-v1.0.0)
+> **Status:** ✅ DONE — all OS1–OS5 merged, feat/87 → develop
 
 | # | Issue | Story | Status |
 |---|-------|-------|--------|
-| OS1 | [#88](https://github.com/architagr/LogNugget/issues/88) | CONTRIBUTING.md + PR/issue templates + CoC | 📋 PLANNED |
-| OS2 | [#89](https://github.com/architagr/LogNugget/issues/89) | SECURITY.md + vulnerability reporting | 📋 PLANNED |
-| OS3 | [#90](https://github.com/architagr/LogNugget/issues/90) | golangci-lint config + GitHub Actions CI | 📋 PLANNED |
-| OS4 | [#91](https://github.com/architagr/LogNugget/issues/91) | godoc audit — all exported symbols documented | 📋 PLANNED |
-| OS5 | [#92](https://github.com/architagr/LogNugget/issues/92) | API stability contract + CHANGELOG | 📋 PLANNED |
+| OS1 | [#88](https://github.com/architagr/LogNugget/issues/88) | CONTRIBUTING.md + PR/issue templates + CoC | ✅ DONE (PR [#103](https://github.com/architagr/LogNugget/pull/103)) |
+| OS2 | [#89](https://github.com/architagr/LogNugget/issues/89) | SECURITY.md + vulnerability reporting | ✅ DONE (PR [#100](https://github.com/architagr/LogNugget/pull/100)) |
+| OS3 | [#90](https://github.com/architagr/LogNugget/issues/90) | golangci-lint config + GitHub Actions CI | ✅ DONE (PR [#101](https://github.com/architagr/LogNugget/pull/101)) |
+| OS4 | [#91](https://github.com/architagr/LogNugget/issues/91) | godoc audit — all exported symbols documented | ✅ DONE (PR [#104](https://github.com/architagr/LogNugget/pull/104)) |
+| OS5 | [#92](https://github.com/architagr/LogNugget/issues/92) | API stability contract + CHANGELOG | ✅ DONE (PR [#102](https://github.com/architagr/LogNugget/pull/102)) |
 
 ---
 
