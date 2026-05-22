@@ -37,13 +37,13 @@ fi
 
 if [ "${1:-}" = "--update-baseline" ]; then
   echo "bench-check: updating baseline at $BASELINE_FILE"
-  go test -bench=. -benchmem -count=10 -run='^$' "$PACKAGES" | tee "$BASELINE_FILE"
+  go test -tags testing -bench=. -benchmem -count=10 -run='^$' "$PACKAGES" | tee "$BASELINE_FILE"
   echo "bench-check: baseline updated. Commit it with the PR that justified the change."
   exit 0
 fi
 
 echo "bench-check: running benchmarks (threshold ${THRESHOLD_NS} ns/op = $(echo "scale=3; $THRESHOLD_NS/1000" | bc) µs; excluding ceiling for: ${EXCLUDE_RE:-none})"
-go test -bench=. -benchmem -count=10 -run='^$' "$PACKAGES" | tee "$NEW_FILE"
+go test -tags testing -bench=. -benchmem -count=10 -run='^$' "$PACKAGES" | tee "$NEW_FILE"
 
 # Latency hard ceiling check (excluded benchmarks still run; only exempt from the ceiling).
 violations="$(awk -v thr="$THRESHOLD_NS" -v excl="$EXCLUDE_RE" '
