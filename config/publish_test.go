@@ -1,13 +1,24 @@
 //go:build testing
 
-// Package config_test covers ARCH-7 / Story 024: LogEvent.Data copy semantics.
+// Package config_test covers ARCH-7 / Story 024 + Epic V2 P4: LogEvent.Data
+// ownership semantics.
 //
-// These tests verify that PublishLog makes an independent copy of the caller's
-// byte slice before putting it on the dispatch channel. The invariant matters
-// because entry.logWithSkip passes an encoder output buffer that may be returned
-// to a sync.Pool immediately after calling PublishLog. Without a defensive copy,
-// a race exists between the background ProcessLogEvent goroutine reading
-// LogEvent.Data and the pool recycling the same backing array.
+// Pre-P4: PublishLog made a defensive copy (ARCH-7). The copy ensured that
+// callers returning e.buf to sync.Pool immediately after calling PublishLog
+// could not race with the background ProcessLogEvent goroutine.
+//
+// P4 (Epic V2 inline framing): the defensive copy was moved upstream into
+// entry.logWithSkip. logWithSkip now steals e.buf with:
+//
+//	data := e.buf
+//	e.buf = make([]byte, 0, initBufCap)   // sever alias — fresh backing array
+//	config.PublishLog(level, data)        // data has exclusive ownership
+//	e.Put()                               // pool gets fresh buf, not data
+//
+// PublishLog no longer copies. Callers MUST transfer exclusive ownership of
+// the slice before calling PublishLog; they must not modify or pool-return the
+// slice after the call. Direct callers of PublishLog (outside logWithSkip) are
+// responsible for making their own copy if needed.
 //
 // All sub-tests run sequentially under the parallel parent Test_PublishLog so
 // they do not race on the singleton against Test_Race_ResetConfig_UnderConcurrentSet
@@ -15,10 +26,10 @@
 // used by Test_Parsers and Test_LogEntry_Methods in this module.
 //
 // Three sub-tests are defined:
-//   - DataNotAliasedToPool  — correctness: mutation of caller's buf after call
-//     does not affect the dispatched LogEvent.Data
-//   - AllocsOneCopy         — alloc budget guard (NF3): verifies >= 1 and <= 5
-//     allocs/call with a 128-byte payload
+//   - DataOwnershipTransfer — correctness: caller transfers owned slice to
+//     PublishLog; verifies the data arrives intact at the pre-processor
+//   - AllocsZeroCopy        — alloc budget guard (P4): PublishLog itself now
+//     allocates 0 copies; the sole channel-box alloc is <= 1
 //   - RaceConcurrent        — 100 goroutines each publish 1 event; -race must be
 //     clean; all 100 events must be delivered
 package config_test
@@ -98,59 +109,47 @@ func setupPublishSpy(t *testing.T, name string) *support.FakePreProc {
 // time out waiting for its spy to be invoked.
 func Test_PublishLog(t *testing.T) {
 
-	// DataNotAliasedToPool verifies that the LogEvent.Data byte slice received by
-	// a pre-processor is independent of the buffer originally passed to PublishLog.
+	// DataOwnershipTransfer verifies that when the caller transfers ownership of a
+	// slice to PublishLog (P4 contract: caller must not retain or modify the slice
+	// after the call), the data arrives intact at the pre-processor.
 	//
-	// Steps:
-	//  1. Call PublishLog with a known slice ("original-content").
-	//  2. Immediately overwrite every byte of the original slice with 'X'.
-	//  3. Assert the spy received "original-content", not "XXXXXXXXXXXXXXXX".
+	// This replaces the pre-P4 DataNotAliasedToPool test which asserted that
+	// PublishLog made a defensive copy. P4 moved the copy responsibility upstream
+	// into entry.logWithSkip (ownership transfer via e.buf steal + fresh make).
 	//
-	// Acceptance criterion 1 of Story 024 (ARCH-7): LogEvent.Data is a fresh
-	// allocation reflecting the bytes at call time, not the bytes present when
-	// the dispatcher goroutine reads the event.
-	t.Run("DataNotAliasedToPool", func(t *testing.T) {
-		spy := setupPublishSpy(t, "alias-spy")
+	// Acceptance criterion: LogEvent.Data received by the pre-processor matches
+	// the bytes passed to PublishLog at call time.
+	t.Run("DataOwnershipTransfer", func(t *testing.T) {
+		spy := setupPublishSpy(t, "ownership-spy")
 
-		original := []byte("original-content")
-		config.PublishLog(enum.LevelInfo, original)
-
-		// Simulate pool recycling: overwrite every byte immediately after call.
-		// If PublishLog aliased Data to original, the spy sees "XXXXXXXXXXXXXXXX".
-		for i := range original {
-			original[i] = 'X'
-		}
+		// Caller owns this slice and will not touch it after calling PublishLog,
+		// simulating the P4 ownership transfer in logWithSkip.
+		owned := []byte("original-content")
+		config.PublishLog(enum.LevelInfo, owned)
 
 		got := drainPublishSpy(t, spy)
 
 		const want = "original-content"
 		if string(got) != want {
-			t.Errorf("LogEvent.Data = %q after caller mutation; want %q\n"+
-				"hint: PublishLog must copy Data before sending on the channel (ARCH-7)",
+			t.Errorf("LogEvent.Data = %q; want %q\n"+
+				"hint: P4 ownership transfer — PublishLog must deliver Data intact",
 				string(got), want)
 		}
-
-		// Drain: only 1 event sent; already verified above. No extra wait needed.
 	})
 
-	// AllocsOneCopy documents the allocation budget of a PublishLog call under
-	// the NF3 alloc-accounting requirement.
+	// AllocsZeroCopy documents the P4 allocation budget: PublishLog itself now
+	// performs 0 copies (no append([]byte(nil), Data...)). The sole alloc is the
+	// LogEvent value boxed into the channel's ring buffer, which the Go runtime
+	// may or may not escape to the heap.
 	//
-	// Expected: 2 allocs/op — 1 for append([]byte(nil), Data...) (the defensive
-	// copy mandated by ARCH-7) plus 1 for the LogEvent value boxed into the
-	// channel's ring buffer. A count of 0 means the copy was removed (aliasing
-	// defect). A count > 5 signals unexpected heap pressure.
-	//
-	// why: NF3 requires one identifiable alloc per published event (~600 B). This
-	// AllocsPerRun measurement is the canonical proof that no regression to zero
-	// copies (aliasing) or excessive copies has occurred.
+	// P4 change: the defensive copy moved into entry.logWithSkip (ownership
+	// transfer: e.buf steal + make([]byte, 0, initBufCap)). PublishLog must not
+	// re-introduce a copy.
 	//
 	// Isolation: we wait for all sent events to drain before returning so that
-	// events from AllocsPerRun's burst (101 calls) are fully processed before
-	// RaceConcurrent installs its spy. Without this drain, in-flight events from
-	// the old channel goroutine would be forwarded to RaceConcurrent's spy
-	// (ProcessLogEvent reads the live EventPreProcessors map, not a snapshot).
-	t.Run("AllocsOneCopy", func(t *testing.T) {
+	// events from AllocsPerRun's burst are fully processed before RaceConcurrent
+	// installs its spy.
+	t.Run("AllocsZeroCopy", func(t *testing.T) {
 		sink := support.NewFakePreProc("alloc-sink")
 		config.TestResetConfig()
 		config.InitPreProcessors(sink)
@@ -161,30 +160,22 @@ func Test_PublishLog(t *testing.T) {
 			payload[i] = byte('a' + i%26)
 		}
 
-		// Track exactly how many events are sent during the measurement so we can
-		// wait for them all to drain before returning from this sub-test.
 		var sent int
 		allocs := testing.AllocsPerRun(100, func() {
 			config.PublishLog(enum.LevelInfo, payload)
 			sent++
 		})
 
-		// why: ProcessLogEvent already runs via the goroutine started by
-		// resetConfig. We wait for all sent events to be acknowledged by the sink
-		// so the subsequent RaceConcurrent sub-test does not inherit in-flight events.
 		waitForDrain(sink, sent, 5*time.Second)
 
 		t.Logf("AllocsPerRun for PublishLog with 128-byte payload: %.1f allocs/op", allocs)
 
-		// A count of 0 means no copy — ARCH-7 violated. Even the pre-fix channel
-		// boxing gives 1, so after the fix we expect exactly 2. Guard both ends.
-		if allocs < 1 {
-			t.Errorf("PublishLog reported %.1f allocs: expected >= 1 (ARCH-7 copy + channel box). "+
-				"Verify that append([]byte(nil), Data...) is present in PublishLog.", allocs)
-		}
-		if allocs > 5 {
-			t.Errorf("PublishLog reported %.1f allocs; expected <= 5 (NF3 budget). "+
-				"Investigate unexpected heap pressure on the publish path.", allocs)
+		// P4: PublishLog must not copy Data — 0 allocs for the copy.
+		// The channel-box alloc may or may not be counted (runtime-dependent).
+		// Guard the upper end: anything > 2 indicates unexpected heap pressure.
+		if allocs > 2 {
+			t.Errorf("PublishLog reported %.1f allocs; expected <= 2 (P4: no Data copy). "+
+				"Check whether append([]byte(nil), Data...) was re-introduced.", allocs)
 		}
 	})
 
@@ -192,16 +183,16 @@ func Test_PublishLog(t *testing.T) {
 	// that all 100 events reach the pre-processor.
 	//
 	// Running with `go test -race -tags testing` must produce no DATA RACE
-	// reports — this is the canonical proof of ARCH-7's "no aliasing across
-	// goroutine boundary" requirement. Each goroutine shares the same payload
-	// slice; PublishLog's copy ensures the dispatcher never reads from a slice
-	// that is concurrently written by another goroutine.
+	// reports. Each goroutine passes the same payload slice to PublishLog; since
+	// no goroutine writes to payload after setup, reading from multiple goroutines
+	// concurrently is race-free. ProcessLogEvent reads each LogEvent.Data slice
+	// without writing to it, so concurrent reads across goroutines are safe.
+	//
+	// P4 note: this is the correct usage pattern — goroutines pass a read-only
+	// (or exclusively-owned) slice to PublishLog and do not touch it afterwards.
 	//
 	// why: numPublishes=1 keeps total sent (100) well within the channel buffer
-	// capacity (10 × drain rate). Larger bursts (e.g. 100×100) block goroutines
-	// in the channel send and allow other parallel tests' TestResetConfig calls
-	// to redirect in-flight events to their spy, breaking the exact count
-	// assertion. The race detector — not the count — is the primary correctness
+	// capacity. The race detector — not the count — is the primary correctness
 	// signal; the count assertion is a secondary liveness check.
 	t.Run("RaceConcurrent", func(t *testing.T) {
 		const (

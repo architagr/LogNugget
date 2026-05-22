@@ -19,3 +19,7 @@ package config
 // helper keeps the production API surface free of this foot-gun while
 // still letting test/support and config_test reach the reset path.
 func TestResetConfig() { resetConfig() }
+
+// TestResetChannelCapacity resets channelCapacity to DafaultLogBuffer.
+// Call before TestResetConfig in capacity-specific tests that need a known state.
+func TestResetChannelCapacity() { channelCapacity.Store(int64(DafaultLogBuffer)) }

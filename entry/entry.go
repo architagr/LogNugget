@@ -27,11 +27,21 @@ type LogEntry struct {
 	// why: eliminates the make([]byte, 0, 256) allocation on every Log call
 	// (D-6 / F27). initBufCap = 1 KB covers the vast majority of log lines.
 	buf []byte
+	// pendingBuf accumulates chain-method fields (Str/Int/Uint/Float64/Bool)
+	// before they are flushed into buf during logWithSkip. Each field is
+	// written as ",key":value so they can be appended verbatim.
+	// Pre-grown to pendingBufCap (256 B) at pool construction; capacity is
+	// retained across pool cycles to eliminate per-call allocations.
+	pendingBuf []byte
 }
 
 // initBufCap is the initial capacity of LogEntry.buf. 1 KB covers ~80% of
 // real-world structured log lines without reallocation on the hot path.
 const initBufCap = 1024
+
+// pendingBufCap is the initial capacity of LogEntry.pendingBuf. 256 B covers
+// the typical chain-method field set (10 typed fields) without reallocation.
+const pendingBufCap = 256
 
 // NewLogEntry obtains a *LogEntry from the internal sync.Pool, resets all
 // fields to zero, and returns it ready for use. Callers must invoke exactly
@@ -55,19 +65,21 @@ func NewLogEntry() *LogEntry {
 // in reset_test.go is updated to allow this exception.
 func (e *LogEntry) reset() {
 	retained := e.buf[:0]
+	retainedPending := e.pendingBuf[:0]
 	*e = LogEntry{}
 	e.buf = retained
+	e.pendingBuf = retainedPending
 }
 
 // Put returns e to the internal sync.Pool. It is called automatically by Log
 // after publishing; callers should not invoke it directly unless they abandon
 // an entry without logging.
 //
-// Safety after PublishLog: by the time Put is called, the encoded bytes have
-// already been passed to config.PublishLog, which copies them into a fresh
-// []byte before sending the LogEvent onto the dispatch channel (ARCH-7). The
-// backing array of the encoder's output buffer therefore has no live readers;
-// Put (and any subsequent pool reuse) cannot race with ProcessLogEvent.
+// Safety after PublishLog (P4 ownership-transfer model): logWithSkip transfers
+// ownership of e.buf to config.PublishLog by severing the alias before calling
+// Put — the slice sent to the channel is a distinct allocation from the buffer
+// retained by the pool. Put therefore cannot race with ProcessLogEvent reading
+// the dispatched bytes.
 func (e *LogEntry) Put() {
 	entryPool.Put(e)
 }
@@ -110,23 +122,35 @@ func (e *LogEntry) Log(level enum.LogLevel, ctx context.Context, message string,
 // why: a separate skip-aware implementation lets test helpers exercise the
 // ok=false path of runtime.Caller (by passing a skip value that exceeds the
 // stack depth) without exposing that parameter on the public API.
+//
+// Hot-path lock discipline (Epic V2 P1):
+//  1. GetAtomicMinLevel — zero locks, zero allocs on the filtered path.
+//  2. GetHotSnapshot — single configMu.RLock replaces the former 6+ individual
+//     GetConfig() calls, reducing lock overhead from ~1.2 µs to ~200 ns.
 func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message string, err error, skip int, fields ...model.LogAttr) {
-	// why: level gate runs BEFORE EventPreProcessors check and before any
-	// allocation (make, AppendField, encoder.Append). A filtered call must
-	// spend zero heap allocations. D-13 / TS-05.
-	if config.GetConfig().MinLevel() > level {
+	// why: atomic level gate runs BEFORE EventPreProcessors check and before
+	// any allocation. A filtered call must spend zero heap allocations.
+	// GetAtomicMinLevel never acquires configMu (D-13 / TS-05 / Epic V2 LLD §2.1).
+	if config.GetAtomicMinLevel() > level {
 		e.Put()
 		return
 	}
-	if config.EventPreProcessors == nil {
+	if !config.HasEventPreProcessors() {
 		e.Put()
 		return
 	}
 
+	// why: one GetHotSnapshot call captures all config fields under a single
+	// RLock instead of the former pattern of calling GetConfig() once per
+	// field (AddSource, TimeFormat, DefaultFields, etc.). Each individual
+	// GetConfig() call took its own RLock; the snapshot collapses them to one
+	// (Epic V2 LLD §2.2).
+	snap := config.GetHotSnapshot()
+
 	// why: capture caller before any other work so that runtime.Caller sees
 	// the correct frame depth. D-1 / F17 / ARCH-3: use singular runtime.Caller,
 	// not runtime.Callers + CallersFrames.
-	if config.GetConfig().AddSource() {
+	if snap.AddSource {
 		if pc, _, _, ok := runtime.Caller(skip); ok {
 			fn := runtime.FuncForPC(pc)
 			frame := &runtime.Frame{}
@@ -139,17 +163,11 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 		}
 	}
 
-	cfg := config.GetConfig()
-	defaultFields := cfg.DefaultFields()
-	rendered := cfg.DefaultFieldsRendered()
-	ctxData := e.setLogContextFields(ctx)
-
-	// why: reuse pooled buf instead of make([]byte, 0, 256) per call.
-	// The backing array was pre-grown to initBufCap (1 KB) at pool construction
-	// and is reset to len=0 (not nil) on each pool cycle, so no allocation
-	// occurs on the hot path for log lines that fit within the capacity.
-	// D-6 / F27 / ARCH-8.
-	e.buf = e.buf[:0]
+	// why: prepend the encoder's opening bytes (e.g. `{` for JSON) directly into
+	// e.buf instead of allocating a new buffer via Encoder.Append(nil, body).
+	// snap.EncoderOpen is pre-fetched in GetHotSnapshot (outside configMu) so
+	// this append performs zero locks. D-6 / F27 / ARCH-8 / Epic V2 P4.
+	e.buf = append(e.buf[:0], snap.EncoderOpen...)
 
 	// why: append the pre-rendered `"key":` prefix bytes directly instead of
 	// calling AppendField, which would re-encode the key string on every call.
@@ -157,57 +175,70 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 	// the hot path performs zero extra allocations for the three mandatory
 	// fields (ARCH-6 / LLD §6.5). AppendQuotedString handles RFC 8259 escaping
 	// of the value without the key-encoding overhead.
-	e.buf = append(e.buf, rendered[enum.DefaultLogKeyTime]...)
-	e.buf = config.AppendQuotedString(e.buf, customTime.Format(customTime.TimeNow(), cfg.TimeFormat()))
+	e.buf = append(e.buf, snap.Rendered[enum.DefaultLogKeyTime]...)
+	e.buf = config.AppendQuotedString(e.buf, customTime.Format(customTime.TimeNow(), snap.TimeFormat))
 	e.buf = append(e.buf, ',')
-	e.buf = append(e.buf, rendered[enum.DefaultLogKeyLevel]...)
+	e.buf = append(e.buf, snap.Rendered[enum.DefaultLogKeyLevel]...)
 	e.buf = config.AppendQuotedString(e.buf, level.String())
 	e.buf = append(e.buf, ',')
-	e.buf = append(e.buf, rendered[enum.DefaultLogKeyMessage]...)
+	e.buf = append(e.buf, snap.Rendered[enum.DefaultLogKeyMessage]...)
 	e.buf = config.AppendQuotedString(e.buf, message)
 
 	for _, field := range fields {
 		key := string(field.Key)
-		if _, ok := defaultFields[enum.DefaultLogKey(field.Key)]; ok {
+		if _, ok := snap.DefaultFields[enum.DefaultLogKey(field.Key)]; ok {
 			// why: user-supplied key collides with a reserved default key;
 			// prefix it so the reserved key is never shadowed. D-8.
 			key = config.DefaultPrefix + key
 		}
 		e.buf = append(e.buf, ',')
-		e.buf = config.AppendField(e.buf, key, field.Value)
+		// why: AppendAttr dispatches by kind — typed attrs (KindStr, KindInt, etc.)
+		// are serialised without any interface{} boxing, eliminating a heap alloc
+		// per field on the hot path (Epic V2 P2). KindAny falls back to the legacy
+		// AppendField-equivalent type switch for backward compatibility.
+		e.buf = config.AppendAttr(e.buf, key, field)
 	}
 
-	// why: ctxData is still []string from setLogContextFields (a separate
-	// refactor out of scope for Story 018). Each string is already a rendered
-	// "key":value fragment; we just need to append it with a leading comma.
-	for _, d := range ctxData {
-		e.buf = append(e.buf, ',')
-		e.buf = append(e.buf, d...)
+	// Flush chain-method fields (Str/Int/Uint/Float64/Bool). These were written
+	// to pendingBuf as ",key":value fragments; appending them here is a single
+	// slice copy with zero allocations when buf has remaining capacity.
+	if len(e.pendingBuf) > 0 {
+		e.buf = append(e.buf, e.pendingBuf...)
+		e.pendingBuf = e.pendingBuf[:0]
 	}
+
+	// Context fields — AppendContextFields dispatches to the zero-alloc
+	// ContextAppender when registered, or falls back to the legacy parser path.
+	// Both paths use snap.RestrictedFields so no extra configMu lock is needed.
+	e.buf = config.AppendContextFields(ctx, e.buf, snap)
 
 	if err != nil {
 		e.buf = append(e.buf, ',')
-		e.buf = append(e.buf, rendered[enum.DefaultLogKeyError]...)
+		e.buf = append(e.buf, snap.Rendered[enum.DefaultLogKeyError]...)
 		e.buf = config.AppendQuotedString(e.buf, err.Error())
 	}
 	if e.caller != nil {
 		e.buf = append(e.buf, ',')
-		e.buf = append(e.buf, rendered[enum.DefaultLogKeyCaller]...)
+		e.buf = append(e.buf, snap.Rendered[enum.DefaultLogKeyCaller]...)
 		e.buf = config.AppendQuotedString(e.buf, e.caller.Function)
 	}
-	if sf := cfg.StaticFields(); sf != "" {
+	if snap.StaticFields != "" {
 		e.buf = append(e.buf, ',')
-		e.buf = append(e.buf, sf...)
+		e.buf = append(e.buf, snap.StaticFields...)
 	}
 
-	en := cfg.Encoder()
-	// why: en.Append(nil, e.buf) allocates a fresh []byte for the encoded log
-	// line (wraps body in {…}\n). byteData does not share the backing array
-	// with e.buf, so it is safe to Put e immediately after (D-6 / story 024
-	// explicit-copy step is a belt-and-suspenders guard for future encoders).
-	byteData := en.Append(nil, e.buf)
-	config.PublishLog(level, byteData)
-
+	// why: append closing bytes (e.g. `}\n` for JSON) directly into e.buf —
+	// no intermediate allocation. Then transfer ownership of e.buf to the
+	// channel by severing the pool alias: replace e.buf with a fresh
+	// make([]byte, 0, initBufCap) so that reset() in e.Put() retains this
+	// new backing array (not the one handed to PublishLog). ProcessLogEvent
+	// reads Data asynchronously; after the transfer the pool goroutine and the
+	// consumer goroutine each own separate backing arrays — no data race.
+	// Eliminates 2 allocs per call vs pre-P4 (en.Append + dataCopy). P4.
+	e.buf = append(e.buf, snap.EncoderClose...)
+	data := e.buf
+	e.buf = make([]byte, 0, initBufCap)
+	config.PublishLog(level, data)
 	e.Put()
 }
 
@@ -246,13 +277,43 @@ func (e *LogEntry) Panic(ctx context.Context, err error, message string, fields 
 	panic(err)
 }
 
-func (e *LogEntry) setLogContextFields(ctx context.Context) []string {
-	if ctxParser := config.GetConfig().ContextParser(); ctx != nil && ctxParser != nil {
-		data := []string{}
-		for key, value := range ctxParser(ctx) {
-			data = append(data, config.ValidateandParseLogField(string(key), value))
-		}
-		return data
-	}
-	return nil
+// Str appends a string field to the entry's pending buffer and returns e for
+// chaining. The field is written as ,"key":"value" with RFC 8259 escaping.
+// Zero heap allocations when pendingBuf has sufficient capacity.
+func (e *LogEntry) Str(key, val string) *LogEntry {
+	e.pendingBuf = append(e.pendingBuf, ',')
+	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Str(key, val))
+	return e
+}
+
+// Int appends an int64 field to the entry's pending buffer and returns e for
+// chaining. The value is written as an unquoted JSON integer.
+func (e *LogEntry) Int(key string, val int64) *LogEntry {
+	e.pendingBuf = append(e.pendingBuf, ',')
+	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Int(key, val))
+	return e
+}
+
+// Uint appends a uint64 field to the entry's pending buffer and returns e for
+// chaining. The value is written as an unquoted JSON integer.
+func (e *LogEntry) Uint(key string, val uint64) *LogEntry {
+	e.pendingBuf = append(e.pendingBuf, ',')
+	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Uint(key, val))
+	return e
+}
+
+// Float64 appends a float64 field to the entry's pending buffer and returns e
+// for chaining. NaN and ±Inf are rendered as JSON null.
+func (e *LogEntry) Float64(key string, val float64) *LogEntry {
+	e.pendingBuf = append(e.pendingBuf, ',')
+	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Float64(key, val))
+	return e
+}
+
+// Bool appends a bool field to the entry's pending buffer and returns e for
+// chaining. The value is written as an unquoted JSON boolean.
+func (e *LogEntry) Bool(key string, val bool) *LogEntry {
+	e.pendingBuf = append(e.pendingBuf, ',')
+	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Bool(key, val))
+	return e
 }

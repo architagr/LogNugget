@@ -19,7 +19,10 @@ func init() {
 // It is called exclusively by the pool's New func and by GenerateInitialPool;
 // callers outside the pool lifecycle must use NewLogEntry instead.
 func initLogEntry() *LogEntry {
-	return &LogEntry{buf: make([]byte, 0, initBufCap)}
+	return &LogEntry{
+		buf:        make([]byte, 0, initBufCap),
+		pendingBuf: make([]byte, 0, pendingBufCap),
+	}
 }
 
 // GenerateInitialPool pre-warms the internal sync.Pool with n ready-to-use

@@ -175,6 +175,17 @@ func (s *StubEncoder) Append(dst, body []byte) []byte {
 // Name returns "stub".
 func (s *StubEncoder) Name() string { return "stub" }
 
+// OpenBytes returns nil; the stub encoder has no opening delimiter.
+func (s *StubEncoder) OpenBytes() []byte { return nil }
+
+// stubCloseBytes is the package-level constant returned by StubEncoder.CloseBytes.
+// why: returning a package-level var avoids a per-call []byte literal allocation,
+// satisfying the zero-alloc constraint on encoder hot-path methods.
+var stubCloseBytes = []byte{'\n'}
+
+// CloseBytes returns a single newline, mirroring the stub Append behaviour.
+func (s *StubEncoder) CloseBytes() []byte { return stubCloseBytes }
+
 // Calls returns the recorded Append body inputs in call order.
 func (s *StubEncoder) Calls() []string {
 	s.mu.Lock()
