@@ -44,6 +44,12 @@ Importing `lognugget` is sufficient — no `NewLogger()` required.
 
 ---
 
+## Security
+
+Please report suspected vulnerabilities privately through GitHub Security Advisories. See [SECURITY.md](SECURITY.md) for supported versions, reporting details, response targets, and coordinated disclosure guidance.
+
+---
+
 ## Configuration
 
 All setters are optional. Defaults work out of the box.
