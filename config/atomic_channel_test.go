@@ -1,14 +1,13 @@
 //go:build testing
 
-// Package config contains tests for the V3-P3 atomic.Value channel pointer
-// optimisation. These tests verify that PublishLog no longer acquires
-// configMu.RLock, eliminating the last read-lock acquisition from the hot path
-// (Epic V3 / LLD §5.1).
+// Package config contains tests verifying that PublishLog does not acquire
+// configMu.RLock. Originally written for V3-P3 (atomic.Value channel pointer);
+// still valid under V3-P9 (MPSC ring buffer) since atomicRing.Load().Push()
+// is equally lock-free.
 //
 // The tests live in package config (not config_test) so they can access the
-// unexported configMu directly — the only reliable way to prove that PublishLog
-// does NOT acquire configMu.RLock without adding test-only hooks to production
-// code.
+// unexported configMu directly — the only reliable way to prove the no-RLock
+// guarantee without adding test-only hooks to production code.
 package config
 
 import (
@@ -70,19 +69,18 @@ func Test_PublishLog_NoConfigMuRLock(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("Test_PublishLog_NoConfigMuRLock: timed out — PublishLog may still " +
 			"be acquiring configMu.RLock, blocking under the write lock. " +
-			"Expected lock-free atomicCh read after V3-P3.")
+			"Expected lock-free atomicRing.Load().Push() after V3-P9.")
 	}
 }
 
 // Test_PublishLog_Race exercises PublishLog under concurrent publish and reset
 // activity. It must produce no DATA RACE reports when run with -race.
 // Eight goroutines each publish 50 events (400 total) while a ninth goroutine
-// calls TestResetConfig three times, replacing ch and atomicCh with fresh values.
+// calls TestResetConfig three times, replacing the ring and ringDoneCh.
 //
-// why: the sub-1 µs SLO requires that the atomic.Value load and channel send
-// are individually safe with no lock. This stress test validates that guarantee
-// under the Go race detector, which instruments every memory access at runtime
-// (V3-P3 / LLD §5.1).
+// why: the sub-1 µs SLO requires that atomicRing.Load().Push() is safe with no
+// lock under concurrent resets. This stress test validates that guarantee under
+// the Go race detector (V3-P9 / LLD §5.1).
 func Test_PublishLog_Race(t *testing.T) {
 	TestResetConfig()
 
