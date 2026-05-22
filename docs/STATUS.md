@@ -1,6 +1,6 @@
 # LogNugget — Live Status Dashboard
 
-> **Last updated:** 2026-05-22 (Epic V3 stories created)
+> **Last updated:** 2026-05-22 (Epic V3 feature branch cut, all docs created)
 > **v1.0.0:** Released ✅ — [tag v1.0.0](https://github.com/architagr/LogNugget/releases/tag/v1.0.0) · [PR #80](https://github.com/architagr/LogNugget/pull/80) (merged)
 > **Umbrella:** [#12](https://github.com/architagr/LogNugget/issues/12)
 
@@ -287,7 +287,7 @@ SLO miss (hot-path 2× over 1 µs) does NOT block v1.0.0 per project decision �
 ## Epic V3 — Sub-500 ns hot path + first-class OTel distributed tracing
 
 > **Umbrella:** [#111](https://github.com/architagr/LogNugget/issues/111)
-> **Status:** 🚧 IN PROGRESS — stories created, implementation not started
+> **Status:** 🚧 IN PROGRESS — feature branch `feat/111-v3-performance` cut, all docs/stories created, implementation starting
 
 ### The gap (post-V2 baseline)
 
@@ -314,15 +314,15 @@ SLO miss (hot-path 2× over 1 µs) does NOT block v1.0.0 per project decision �
 
 | # | Issue | Story | Status |
 |---|-------|-------|--------|
-| P1 | [#112](https://github.com/architagr/LogNugget/issues/112) | atomic.Bool pre-processor gate | 🔲 TODO |
-| P2 | [#113](https://github.com/architagr/LogNugget/issues/113) | atomic.Pointer[HotSnapshot] copy-on-write snapshot | 🔲 TODO |
-| P3 | [#114](https://github.com/architagr/LogNugget/issues/114) | atomic channel pointer in PublishLog | 🔲 TODO |
-| P4 | [#115](https://github.com/architagr/LogNugget/issues/115) | AppendFormat direct timestamp (no string roundtrip) | 🔲 TODO |
-| P5 | [#116](https://github.com/architagr/LogNugget/issues/116) | appendJSONStringStr — string-native JSON escape | 🔲 TODO |
-| P6 | [#117](https://github.com/architagr/LogNugget/issues/117) | pre-rendered quoted level bytes | 🔲 TODO |
-| P7 | [#118](https://github.com/architagr/LogNugget/issues/118) | First-class OTel ContextFieldsAppender + tracing benchmark | 🔲 TODO |
-| P8 | [#119](https://github.com/architagr/LogNugget/issues/119) | exact-size buffer copy alias severance | 🔲 TODO |
-| P9 | [#120](https://github.com/architagr/LogNugget/issues/120) | lock-free MPSC ring buffer dispatch queue | 🔲 TODO |
+| P1 | [#112](https://github.com/architagr/LogNugget/issues/112) | atomic.Bool pre-processor gate | 🔲 TODO — story ready, branch `feat/112-p1-atomic-preprocessor-gate` |
+| P2 | [#113](https://github.com/architagr/LogNugget/issues/113) | atomic.Pointer[HotSnapshot] copy-on-write snapshot | 🔲 TODO — story ready, branch `feat/113-p2-atomic-pointer-snapshot` |
+| P3 | [#114](https://github.com/architagr/LogNugget/issues/114) | atomic channel pointer in PublishLog | 🔲 TODO — story ready, branch `feat/114-p3-atomic-channel-pointer` |
+| P4 | [#115](https://github.com/architagr/LogNugget/issues/115) | AppendFormat direct timestamp (no string roundtrip) | 🔲 TODO — story ready, branch `feat/115-p4-direct-timestamp` |
+| P5 | [#116](https://github.com/architagr/LogNugget/issues/116) | appendJSONStringStr — string-native JSON escape | 🔲 TODO — story ready, branch `feat/116-p5-string-native-escape` |
+| P6 | [#117](https://github.com/architagr/LogNugget/issues/117) | pre-rendered quoted level bytes | 🔲 TODO — story ready, branch `feat/117-p6-prerendered-level-bytes` |
+| P7 | [#118](https://github.com/architagr/LogNugget/issues/118) | First-class OTel ContextFieldsAppender + tracing benchmark | 🔲 TODO — story ready, branch `feat/118-p7-otel-context-appender` |
+| P8 | [#119](https://github.com/architagr/LogNugget/issues/119) | exact-size buffer copy alias severance | 🔲 TODO — story ready, branch `feat/119-p8-exact-buffer-size` |
+| P9 | [#120](https://github.com/architagr/LogNugget/issues/120) | lock-free MPSC ring buffer dispatch queue | 🔲 TODO — story ready, branch `feat/120-p9-mpsc-ring-buffer` |
 
 ---
 

@@ -32,30 +32,34 @@ func Test_NewLogEntry_ReturnsResetEntry(t *testing.T) {
 
 // Test_GenerateInitialPool_PrePopulatesN verifies that after GenerateInitialPool(n),
 // n consecutive NewLogEntry calls each return an entry whose buf backing array
-// was pre-grown to at least initBufCap capacity. This confirms the pool was
-// pre-warmed with fully initialised entries (F4 / TS-08).
+// was pre-grown to at least 64 B (the P8 floor). Pre-P8 the pre-warmed cap was
+// initBufCap (1024 B); with P8, logWithSkip replaces the pool buffer with
+// max(64, len(data)) so parallel test execution can deposit smaller-cap entries.
+// The assertion is now cap >= 64 rather than cap >= initBufCap (F4 / TS-08).
 //
 // why: sync.Pool does not guarantee LIFO or any ordering, but a freshly warmed
 // pool on a single goroutine will return the pre-allocated entries before the
-// GC has a chance to collect them. Asserting cap >= initBufCap (not pointer
-// equality) keeps the assertion GC-safe.
+// GC has a chance to collect them.
 func Test_GenerateInitialPool_PrePopulatesN(t *testing.T) {
 	t.Parallel()
 
 	const n = 5
 	GenerateInitialPool(n)
 
+	const minCap = 64
 	for i := 0; i < n; i++ {
 		e := NewLogEntry()
-		if cap(e.buf) < initBufCap {
-			t.Errorf("NewLogEntry call %d after GenerateInitialPool(%d): buf cap = %d, want >= %d (pool not pre-warmed)", i+1, n, cap(e.buf), initBufCap)
+		if cap(e.buf) < minCap {
+			t.Errorf("NewLogEntry call %d after GenerateInitialPool(%d): buf cap = %d, want >= %d (pool not pre-warmed)", i+1, n, cap(e.buf), minCap)
 		}
 		e.Put()
 	}
 }
 
 // Test_LogEntry_Put_ReturnsToPool verifies that Put followed by NewLogEntry
-// returns an entry with buf capacity >= initBufCap and len == 0.
+// returns an entry with buf len == 0 and cap >= 64 (the P8 floor).
+// Pre-P8 the floor was initBufCap (1024 B); P8 sizes the replacement buffer
+// to max(64, len(data)) so the minimum guarantee is 64 B.
 // This is a best-effort assertion: sync.Pool offers no hard guarantee that
 // the exact same object is returned, but it will be on any uncontended path
 // where the GC has not run between Put and Get (F25 / TS-08).
@@ -65,14 +69,19 @@ func Test_LogEntry_Put_ReturnsToPool(t *testing.T) {
 	e := NewLogEntry()
 	// Grow buf so the capacity is observable after the pool round-trip.
 	e.buf = append(e.buf, make([]byte, 64)...)
+	capBeforePut := cap(e.buf)
 	e.Put()
 
 	e2 := NewLogEntry()
 	defer e2.Put()
 
-	if cap(e2.buf) < initBufCap {
-		t.Errorf("NewLogEntry after Put: buf cap = %d, want >= %d (backing array must survive pool cycle)", cap(e2.buf), initBufCap)
+	// Pool slot must have been returned with its backing array intact — cap
+	// must be ≥ 64 (P8 floor) and must be ≥ len of the data we appended.
+	const minCap = 64
+	if cap(e2.buf) < minCap {
+		t.Errorf("NewLogEntry after Put: buf cap = %d, want >= %d (backing array must survive pool cycle)", cap(e2.buf), minCap)
 	}
+	_ = capBeforePut // capacity may shrink via P8 on the logWithSkip path; direct Put retains it
 	if len(e2.buf) != 0 {
 		t.Errorf("NewLogEntry after Put: buf len = %d, want 0 (reset must clear buf)", len(e2.buf))
 	}

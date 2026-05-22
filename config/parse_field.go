@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/architagr/lognugget/enum"
 	"github.com/architagr/lognugget/model"
 )
 
@@ -23,7 +24,58 @@ import (
 //
 // Safe for concurrent use; reads no shared state.
 func AppendQuotedString(dst []byte, s string) []byte {
-	return appendJSONString(dst, []byte(s))
+	return appendJSONStringStr(dst, s)
+}
+
+// appendJSONStringStr appends s to dst as an RFC 8259 JSON string (including
+// the surrounding double-quote characters). It operates directly on the string
+// header, avoiding the []byte(s) allocation that appendJSONString incurs.
+// Invalid UTF-8 bytes are replaced with the Unicode replacement character
+// (U+FFFD), matching appendJSONString semantics exactly.
+//
+// why: []byte(s) allocates a copy on the heap for every call on the hot log
+// path (~20 ns, ~2 allocs/event). Operating on the string directly via
+// utf8.DecodeRuneInString and direct byte indexing eliminates that allocation
+// while keeping identical escape behaviour (V3-P5).
+func appendJSONStringStr(dst []byte, s string) []byte {
+	dst = append(dst, '"')
+	for i := 0; i < len(s); {
+		b := s[i]
+		if b >= utf8.RuneSelf {
+			r, size := utf8.DecodeRuneInString(s[i:])
+			if r == utf8.RuneError && size == 1 {
+				dst = append(dst, '\xef', '\xbf', '\xbd') // U+FFFD replacement
+				i++
+				continue
+			}
+			dst = append(dst, s[i:i+size]...)
+			i += size
+			continue
+		}
+		switch cfgEscapeTable[b] {
+		case 0:
+			dst = append(dst, b)
+		case cfgEscHex:
+			dst = append(dst, '\\', 'u', '0', '0', cfgHexDigits[b>>4], cfgHexDigits[b&0xf])
+		case cfgEscQuot:
+			dst = append(dst, '\\', '"')
+		case cfgEscBksl:
+			dst = append(dst, '\\', '\\')
+		case cfgEscB:
+			dst = append(dst, '\\', 'b')
+		case cfgEscF:
+			dst = append(dst, '\\', 'f')
+		case cfgEscN:
+			dst = append(dst, '\\', 'n')
+		case cfgEscR:
+			dst = append(dst, '\\', 'r')
+		case cfgEscT:
+			dst = append(dst, '\\', 't')
+		}
+		i++
+	}
+	dst = append(dst, '"')
+	return dst
 }
 
 // appendJSONString appends src to dst as an RFC 8259 JSON string (including the
@@ -111,6 +163,33 @@ func init() {
 	cfgEscapeTable['\t'] = cfgEscT
 }
 
+// AppendQuotedLevel appends the JSON-quoted representation of l to dst and
+// returns the extended slice. Named levels (Debug, Info, Warn, Error, Fatal)
+// append pre-quoted constant byte slices — zero heap allocations. Unknown
+// levels fall back to AppendQuotedString(l.String()), which allocates.
+//
+// Safe for concurrent use; reads no shared state.
+//
+// why: level.String() allocates a string on every call; switching over the
+// five named constants and appending literal bytes eliminates ~1 alloc and
+// ~15 ns per log event on the hot path (V3-P6 / story #117).
+func AppendQuotedLevel(dst []byte, l enum.LogLevel) []byte {
+	switch l {
+	case enum.LevelDebug:
+		return append(dst, `"DEBUG"`...)
+	case enum.LevelInfo:
+		return append(dst, `"INFO"`...)
+	case enum.LevelWarn:
+		return append(dst, `"WARN"`...)
+	case enum.LevelError:
+		return append(dst, `"ERROR"`...)
+	case enum.LevelFatal:
+		return append(dst, `"FATAL"`...)
+	default:
+		return AppendQuotedString(dst, l.String())
+	}
+}
+
 // AppendField appends a JSON key-value fragment of the form `"key":value` to
 // dst and returns the extended slice. dst may be nil; a new slice is allocated
 // in that case.
@@ -135,12 +214,12 @@ func init() {
 // AppendField is safe for concurrent use; it reads no shared state.
 func AppendField(dst []byte, key string, value any) []byte {
 	// Write the key as a quoted, RFC 8259 escaped JSON string.
-	dst = appendJSONString(dst, []byte(key))
+	dst = appendJSONStringStr(dst, key)
 	dst = append(dst, ':')
 
 	switch v := value.(type) {
 	case string:
-		dst = appendJSONString(dst, []byte(v))
+		dst = appendJSONStringStr(dst, v)
 
 	case int:
 		dst = strconv.AppendInt(dst, int64(v), 10)

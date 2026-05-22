@@ -58,6 +58,12 @@ func (b *ConfigBuilder) AddSource(v bool) *ConfigBuilder {
 	return b
 }
 
+// TimeFormat queues SetTimeFormat with the given layout string.
+func (b *ConfigBuilder) TimeFormat(layout string) *ConfigBuilder {
+	b.apply = append(b.apply, func() { config.SetTimeFormat(layout) })
+	return b
+}
+
 // Build applies queued setters and returns a cleanup func that resets
 // the singleton; cleanup is also registered via tb.Cleanup.
 func (b *ConfigBuilder) Build() func() {

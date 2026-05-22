@@ -54,6 +54,33 @@ PENDING / TESTS_DRAFTED / TESTS_APPROVED / IMPL_IN_PROGRESS / DRAFT_PR / READY /
 | 039 | #54 | Fix config.ResetConfig race | A | engineer | NF7, NF9, race | 200 | 006 | MERGED |
 | 040 | #55 | Story 001 doc drift fix | A | N/A (PL) | doc | ≤30 | — | DONE |
 
+## Epic V2 — Performance stories
+
+| # | Issue | Title | Epic | Owner-role | LOC | Deps | Status |
+|---|---|---|---|---|---|---|---|
+| V2-P1 | #82 | Atomic minLevel + single config snapshot | V2 | engineer | 180 | — | MERGED |
+| V2-P2 | #83 | Typed field API (Str/Int/Bool/Float64) | V2 | engineer | 200 | V2-P1 | MERGED |
+| V2-P3 | #84 | Append-to-buf context API | V2 | engineer | 180 | V2-P1 | MERGED |
+| V2-P4 | #85 | Inline framing — eliminate double-buffer | V2 | engineer | 160 | V2-P1 | MERGED |
+| V2-P5 | #86 | Channel capacity 1000 + configurable | V2 | engineer | 80 | — | MERGED |
+
+## Epic V3 — Sub-500 ns + OTel stories
+
+Feature branch: `feat/111-v3-performance` (off `develop`).
+Umbrella issue: **#111**.
+
+| # | Issue | Title | Epic | Owner-role | LOC | Deps | Status |
+|---|---|---|---|---|---|---|---|
+| V3-P1 | #112 | atomic.Bool pre-processor gate | V3 | engineer | 80 | — | TODO |
+| V3-P2 | #113 | atomic.Pointer[HotSnapshot] copy-on-write | V3 | engineer | 200 | V3-P1 | TODO |
+| V3-P3 | #114 | Atomic channel pointer in PublishLog | V3 | engineer | 50 | V3-P2 | TODO |
+| V3-P4 | #115 | AppendFormat direct timestamp | V3 | engineer | 40 | — | TODO |
+| V3-P5 | #116 | appendJSONStringStr string-native escape | V3 | engineer | 100 | — | TODO |
+| V3-P6 | #117 | Pre-rendered quoted level bytes | V3 | engineer | 60 | — | TODO |
+| V3-P7 | #118 | First-class OTel ContextFieldsAppender + bench | V3 | engineer | 150 | V3-P2 | TODO |
+| V3-P8 | #119 | Exact-size buffer alias severance | V3 | engineer | 30 | — | TODO |
+| V3-P9 | #120 | Lock-free MPSC ring buffer dispatch | V3 | engineer | 280 | V3-P1..P8 | TODO |
+
 ## SC traceability
 
 | SC | Stories that close it |

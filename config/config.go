@@ -8,7 +8,9 @@
 // acquire configMu (read). This satisfies the race-freedom requirement
 // tracked in issue #54 / story 039 without the allocation overhead of a
 // copy-on-write atomic.Pointer approach (see bench-baseline.txt for
-// the < 1 µs budget).
+// the < 1 µs budget). Hot-path booleans (HasEventPreProcessors) are
+// additionally mirrored into atomic.Bool fields so the most frequent
+// callers pay a single load instruction rather than a full RLock pair.
 package config
 
 import (
@@ -16,6 +18,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -54,6 +57,46 @@ var (
 // on the filtered path removes ~200 ns of contention per filtered event,
 // keeping the overall call budget inside the < 1 µs SLO (Epic V2 / LLD §2.1).
 var atomicMinLevel atomic.Int64
+
+// hasPreProcessorsAtomic mirrors len(EventPreProcessors) > 0 as an atomic.Bool
+// so that HasEventPreProcessors can short-circuit without acquiring configMu.
+// It is stored inside configMu.Lock in every mutator (InitPreProcessors,
+// AddPreProcessors, RemovePreProcessor, resetConfig) to stay consistent with
+// the guarded map.
+//
+// why: the former RLock+RUnlock pair in HasEventPreProcessors cost ~80 ns on the
+// hot log path (V3-P1 / LLD §3.1). atomic.Bool.Load is a single memory barrier
+// with no scheduler interaction, bringing the check to < 1 ns/op (see
+// BenchmarkHasEventPreProcessors in preprocessor_gate_bench_test.go).
+var hasPreProcessorsAtomic atomic.Bool
+
+// hotSnapshotPtr holds the current HotSnapshot as an atomic pointer so that
+// GetHotSnapshot can load the snapshot with a single memory barrier instead of
+// acquiring configMu.RLock and copying the struct field-by-field.
+//
+// why: the former configMu.RLock + struct copy path cost ~120-200 ns under
+// contention on the read side. atomic.Pointer.Load is a single instruction with
+// no scheduler interaction, making the read path allocation-free and
+// contention-free (V3-P2 / LLD §4.1 / ~120 ns saving per log event).
+//
+// Invariant: hotSnapshotPtr must never be nil after package init. It is stored
+// inside every configMu.Lock scope (in all Set* mutators and in resetConfig)
+// so readers always observe a fully-initialised snapshot.
+var hotSnapshotPtr atomic.Pointer[HotSnapshot]
+
+// atomicRing holds the current MPSC ring buffer as an atomic pointer so that
+// PublishLog can enqueue events with a single memory barrier and a lock-free
+// Push, with no configMu acquisition on the hot path (V3-P9 / LLD §5.1).
+//
+// Invariant: atomicRing must never be nil after package init. It is stored
+// inside every configMu.Lock scope in resetConfig (the only site that
+// creates a new ring) so callers of PublishLog always observe a valid ring.
+var atomicRing atomic.Pointer[mpscRingBuffer]
+
+// ringDoneCh is closed by resetConfig to signal the current ProcessLogEvent
+// goroutine to stop spinning and exit. A new channel is allocated for each
+// new ring epoch. Protected by configMu.Lock when replaced.
+var ringDoneCh chan struct{}
 
 // Compile-time width guard: enum.LogLevel must fit in int64 so the atomic
 // store is lossless. If LogLevel ever widens beyond int64 this line will
@@ -139,38 +182,51 @@ func GetAtomicMinLevel() enum.LogLevel {
 	return enum.LogLevel(atomicMinLevel.Load())
 }
 
-// GetHotSnapshot captures all hot-path config fields under a single
-// configMu.RLock and returns them as a HotSnapshot. The encoder's
-// OpenBytes and CloseBytes are fetched after the lock is released because
-// they return constant slices that never change after encoder construction.
+// storeHotSnapshot builds a fresh HotSnapshot from defaultConfig and
+// restrictedFieldsSet and atomically publishes it to hotSnapshotPtr.
 //
-// why: one RLock per log call replaces the 6+ individual RLock/RUnlock pairs
-// that existed when logWithSkip called GetConfig().AddSource(),
-// GetConfig().DefaultFields(), etc. separately. The reduction from ~1.2 µs
-// to ~200 µs lock overhead is measured in bench-baseline.txt (Epic V2 P1).
+// Precondition: caller must hold configMu (write lock). Calling this outside
+// the lock would allow a concurrent Set* writer to produce a snapshot that
+// mixes fields from two different writes, violating the atomic-visibility
+// guarantee (V3-P2 / LLD §4.1).
 //
-// Callers must not mutate any map field in the returned snapshot.
-func GetHotSnapshot() HotSnapshot {
-	configMu.RLock()
-	snap := HotSnapshot{
+// why: building the snapshot inside the lock ensures that every field in the
+// published pointer is consistent with respect to each other. Readers that
+// call GetHotSnapshot after the pointer is stored see a coherent snapshot
+// without ever acquiring configMu.
+func storeHotSnapshot() {
+	snap := &HotSnapshot{
 		AddSource:        defaultConfig.addSource,
 		TimeFormat:       defaultConfig.timeFormat,
-		DefaultFields:    defaultConfig.defaultFields,         // DO NOT MUTATE — shared reference
-		Rendered:         defaultConfig.defaultFieldsRendered, // DO NOT MUTATE — shared reference
+		DefaultFields:    defaultConfig.defaultFields,
+		Rendered:         defaultConfig.defaultFieldsRendered,
 		StaticFields:     defaultConfig.parsedStaticFields,
 		ContextParser:    defaultConfig.contextParser,
 		ContextAppender:  defaultConfig.contextAppender,
 		Encoder:          defaultConfig.encoderObj,
 		EncoderType:      defaultConfig.encoderType,
-		RestrictedFields: restrictedFieldsSet, // DO NOT MUTATE — shared reference
+		RestrictedFields: restrictedFieldsSet,
 	}
-	configMu.RUnlock()
-	// Call encoder methods outside the lock — they return package-level
-	// constant slices that are written once at encoder construction and
-	// never mutated.
+	// why: OpenBytes/CloseBytes return package-level constant slices written
+	// once at encoder construction and never mutated. They are safe to call
+	// inside the lock without risk of circular locking.
 	snap.EncoderOpen = snap.Encoder.OpenBytes()
 	snap.EncoderClose = snap.Encoder.CloseBytes()
-	return snap
+	hotSnapshotPtr.Store(snap)
+}
+
+// GetHotSnapshot returns the current hot-path config snapshot via a single
+// atomic.Pointer load. No lock is acquired; the returned value is a complete,
+// consistent snapshot published by the last Set* mutator or resetConfig call.
+//
+// why: replacing the former configMu.RLock + struct copy with a single
+// atomic.Pointer.Load removes ~120 ns of lock overhead per log event, the
+// largest single saving in Epic V3 (LLD §4.1 / bench-baseline.txt).
+//
+// Callers must treat every map field (DefaultFields, Rendered, RestrictedFields)
+// as read-only; they are shared references — do not mutate them.
+func GetHotSnapshot() HotSnapshot {
+	return *hotSnapshotPtr.Load()
 }
 
 // PublishLogMessageHookContract is the interface that log-level hooks must
@@ -224,18 +280,15 @@ type LogEvent struct {
 
 var (
 	defaultConfig      *Config
-	ch                 chan LogEvent
 	EventPreProcessors map[string]preProcessingObserverContract
 
-	// configMu guards the three package-level globals above.
+	// configMu guards defaultConfig, EventPreProcessors, and the ring epoch.
 	//
-	// why: ProcessLogEvent reads ch and EventPreProcessors concurrently
-	// with resetConfig writing them; Set* functions write fields of
-	// defaultConfig concurrently with each other and with resetConfig.
-	// A single RWMutex is the minimal, reviewable fix for #54.
-	// RLock is taken by read-only paths (GetConfig, ProcessLogEvent) so
-	// multiple concurrent readers never block each other; write paths
-	// (Set*, resetConfig) take the exclusive Lock.
+	// why: ProcessLogEvent reads EventPreProcessors concurrently with
+	// resetConfig writing them; Set* functions write fields of defaultConfig
+	// concurrently with each other and with resetConfig. A single RWMutex is
+	// the minimal, reviewable fix for #54. RLock is taken by read-only paths;
+	// write paths (Set*, resetConfig) take the exclusive Lock.
 	configMu sync.RWMutex
 )
 
@@ -254,6 +307,9 @@ func InitPreProcessors(observers ...preProcessingObserverContract) {
 	for _, observer := range observers {
 		EventPreProcessors[observer.Name()] = observer
 	}
+	// why: store inside the lock so HasEventPreProcessors sees a consistent value
+	// with respect to every other configMu writer (V3-P1 / LLD §3.1).
+	hasPreProcessorsAtomic.Store(len(EventPreProcessors) > 0)
 }
 
 // AddPreProcessors registers one or more pre-processors into the global
@@ -264,17 +320,22 @@ func AddPreProcessors(observers ...preProcessingObserverContract) {
 	for _, observer := range observers {
 		EventPreProcessors[observer.Name()] = observer
 	}
+	// why: store inside the lock so HasEventPreProcessors sees a consistent value
+	// with respect to every other configMu writer (V3-P1 / LLD §3.1).
+	hasPreProcessorsAtomic.Store(len(EventPreProcessors) > 0)
 }
 
 // HasEventPreProcessors reports whether at least one pre-processor is
-// registered. It acquires configMu.RLock so it is safe for concurrent use and
-// produces no data races. The hot path in logWithSkip calls this instead of
-// reading EventPreProcessors directly (which is an unsynchronised map access).
+// registered. It reads hasPreProcessorsAtomic with a single atomic load —
+// no lock is acquired — making it safe for concurrent use with zero contention
+// on the hot log path (V3-P1 / LLD §3.1).
+//
+// why: the former RLock+RUnlock pair cost ~80 ns per call; an atomic.Bool.Load
+// costs < 1 ns. The value is kept consistent by all mutators (InitPreProcessors,
+// AddPreProcessors, RemovePreProcessor, resetConfig) which store to
+// hasPreProcessorsAtomic inside their configMu.Lock sections.
 func HasEventPreProcessors() bool {
-	configMu.RLock()
-	n := len(EventPreProcessors)
-	configMu.RUnlock()
-	return n > 0
+	return hasPreProcessorsAtomic.Load()
 }
 
 // RemovePreProcessor deletes the named pre-processor from the global map.
@@ -283,30 +344,41 @@ func RemovePreProcessor(name string) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	delete(EventPreProcessors, name)
+	// why: store inside the lock so HasEventPreProcessors sees a consistent value
+	// with respect to every other configMu writer (V3-P1 / LLD §3.1).
+	hasPreProcessorsAtomic.Store(len(EventPreProcessors) > 0)
 }
 
 // SetMinLevel sets the minimum log level for the logger. It stores the level
 // both in defaultConfig (guarded by configMu) and in atomicMinLevel so that
 // the lock-free gate in GetAtomicMinLevel immediately observes the change.
+// storeHotSnapshot is called inside the lock so GetHotSnapshot immediately
+// reflects the new level on the atomic read path (V3-P2 / LLD §4.1).
 // Safe for concurrent use.
 func SetMinLevel(level enum.LogLevel) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.minLevel = level
 	atomicMinLevel.Store(int64(level))
+	storeHotSnapshot()
 }
 
-// SetTimeFormat sets the time format for log entries. Safe for
-// concurrent use.
+// SetTimeFormat sets the time format for log entries. storeHotSnapshot is
+// called inside the lock so the atomic snapshot immediately reflects the new
+// format without requiring callers to hold configMu (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetTimeFormat(format string) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.timeFormat = format
+	storeHotSnapshot()
 }
 
 // SetEncoderType sets the encoder type for the logger. If the requested
-// encoder type is unknown, it falls back to EncoderJSON. Safe for
-// concurrent use.
+// encoder type is unknown, it falls back to EncoderJSON. storeHotSnapshot is
+// called inside the lock so the atomic snapshot immediately reflects the new
+// encoder and its OpenBytes/CloseBytes constants (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetEncoderType(encoderType enum.LogEncodeType) {
 	var err error
 
@@ -320,18 +392,26 @@ func SetEncoderType(encoderType enum.LogEncodeType) {
 	}
 
 	defaultConfig.encoderType = encoderType
+	storeHotSnapshot()
 }
 
 // SetAddSource sets whether source file and line information is appended
-// to every log entry. Safe for concurrent use.
+// to every log entry. storeHotSnapshot is called inside the lock so the
+// atomic snapshot immediately reflects the new AddSource flag (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetAddSource(addSource bool) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.addSource = addSource
+	storeHotSnapshot()
 }
 
 // SetOutput sets the output writer for the logger. A nil argument is
-// silently replaced with DefaultOutput. Safe for concurrent use.
+// silently replaced with DefaultOutput. output is not part of HotSnapshot
+// (it is accessed via GetConfig().Output() on the write path), but
+// storeHotSnapshot is called here for consistency so the snapshot remains
+// fully up-to-date with the rest of defaultConfig (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetOutput(output io.Writer) {
 	if output == nil {
 		output = DefaultOutput
@@ -339,6 +419,7 @@ func SetOutput(output io.Writer) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.output = output
+	storeHotSnapshot()
 }
 
 // PublishLog sends Data onto the dispatch channel. Safe for concurrent use;
@@ -350,23 +431,21 @@ func SetOutput(output io.Writer) {
 // returns. Data therefore has exclusive ownership; the background goroutine
 // (ProcessLogEvent) can read it safely without a defensive copy.
 //
-// why (lock discipline): the RLock is taken only for the pointer snapshot of
-// ch, not across the send itself. resetConfig never closes the old channel
-// (see comment there), so there is no "send on closed channel" risk.
-// Releasing the RLock before the send avoids holding it during a potentially
-// blocking channel operation.
+// why (V3-P9 ring buffer): the channel send (~130 ns under 8-goroutine
+// contention) is replaced by an atomic.Pointer load + lock-free Push on the
+// MPSC ring buffer. Multiple producers write concurrently via fetch-and-add
+// on the ring tail; no mutex is held on the hot path. atomicRing is always
+// stored inside configMu.Lock in resetConfig so the load always returns a
+// valid ring (V3-P9 / LLD §5.1).
 func PublishLog(Level enum.LogLevel, Data []byte) {
-	configMu.RLock()
-	currentCh := ch
-	configMu.RUnlock()
-	currentCh <- LogEvent{
-		Level: Level,
-		Data:  Data,
-	}
+	atomicRing.Load().Push(LogEvent{Level: Level, Data: Data})
 }
 
 // SetLogBufferMaxSize sets the maximum buffer size for logs. Values ≤ 0
-// are silently replaced with 20. Safe for concurrent use.
+// are silently replaced with 20. storeHotSnapshot is called inside the lock
+// for consistency; logBufferMaxSize itself is not a HotSnapshot field but the
+// call keeps the snapshot fully synchronised with defaultConfig (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetLogBufferMaxSize(size int) {
 	if size <= 0 {
 		size = 20 // Default buffer size
@@ -374,10 +453,14 @@ func SetLogBufferMaxSize(size int) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.logBufferMaxSize = size
+	storeHotSnapshot()
 }
 
 // SetRate sets the rate at which buffered logs are pushed to output.
-// Values ≤ 0 are silently replaced with 1 second. Safe for concurrent use.
+// Values ≤ 0 are silently replaced with 1 second. storeHotSnapshot is called
+// inside the lock for consistency; rate itself is not a HotSnapshot field but
+// the call keeps the snapshot fully synchronised with defaultConfig (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetRate(rate time.Duration) {
 	if rate <= 0 {
 		rate = 1 * time.Second // Default rate is 1 sec
@@ -385,6 +468,7 @@ func SetRate(rate time.Duration) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.rate = rate
+	storeHotSnapshot()
 }
 
 // restrictedFieldsSet is the O(1) replacement for the former restrictedFields
@@ -477,7 +561,9 @@ func ParseLogField(key string, value any) string {
 
 // SetStaticEnvFieldsParser sets the function that extracts static
 // environment fields merged into every log line. Passing nil clears the
-// field. Safe for concurrent use.
+// field. storeHotSnapshot is called inside the lock so the atomic snapshot
+// immediately reflects the new StaticFields fragment (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
 	var parsed string
 	if parser != nil {
@@ -492,30 +578,37 @@ func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.parsedStaticFields = parsed
+	storeHotSnapshot()
 }
 
 // SetContextFieldsParser sets the function that extracts per-request
-// context fields. Safe for concurrent use.
+// context fields. storeHotSnapshot is called inside the lock so the atomic
+// snapshot immediately reflects the new ContextParser (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetContextFieldsParser(parser ContextFieldsParser) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.contextParser = parser
+	storeHotSnapshot()
 }
 
 // SetContextFieldsAppender sets the zero-alloc context field writer.
 // When set, it takes precedence over any ContextFieldsParser on the hot path.
 // The appender receives the entry buffer and must append ,key:value fragments
-// for each context field, returning the extended buffer. Safe for concurrent use.
+// for each context field, returning the extended buffer. storeHotSnapshot is
+// called inside the lock so the atomic snapshot immediately reflects the new
+// ContextAppender (V3-P2 / LLD §4.1). Safe for concurrent use.
 func SetContextFieldsAppender(appender ContextFieldsAppender) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.contextAppender = appender
+	storeHotSnapshot()
 }
 
-// SetChannelCapacity sets the buffer size for the dispatch channel created by
-// the next resetConfig call. Must be called before init() fires (Go
-// init-ordering guarantee) and before InitPreProcessors. No configMu needed —
-// the variable is written once at startup, read once in resetConfig.
+// SetChannelCapacity is retained for API compatibility. Since V3-P9 replaced
+// the buffered chan LogEvent with a fixed-size MPSC ring buffer (ringSize=4096),
+// this value is no longer used by the dispatch path and has no effect on
+// throughput or backpressure. It is safe to call but does nothing observable.
 //
 // Values ≤ 0 are clamped to DafaultLogBuffer (1000); values > 100_000 are
 // clamped to 100_000. A log.Printf warning is emitted for out-of-range values.
@@ -595,6 +688,11 @@ func SetDefaultFields(fields map[enum.DefaultLogKey]string) {
 	// under the same write lock to keep restrictedFieldsSet and
 	// defaultFieldsRendered consistent (ARCH-6 / acceptance criterion 3).
 	defaultConfig.defaultFieldsRendered = buildRenderedFields(defaultConfig.defaultFields)
+	// why: storeHotSnapshot must be called after both buildRestrictedSet and
+	// buildRenderedFields so the published snapshot contains the fully-rebuilt
+	// maps. A snapshot stored before either rebuild would expose stale map
+	// references to concurrent readers on the atomic path (V3-P2 / LLD §4.1).
+	storeHotSnapshot()
 }
 
 // GetConfig returns a pointer to the current logger configuration.
@@ -606,24 +704,49 @@ func GetConfig() *Config {
 	return defaultConfig
 }
 
-// ProcessLogEvent drains the dispatch channel and forwards each event
-// to every registered PreProcessor. It is started as a goroutine by
-// resetConfig and runs until the channel is closed. Safe for concurrent
-// use: it takes an RLock to snapshot the current ch and EventPreProcessors
-// values so that a concurrent resetConfig does not create a data race on
-// those globals.
+// ProcessLogEvent pops events from the MPSC ring buffer and forwards each to
+// every registered PreProcessor. It runs until ringDoneCh is closed (by the
+// next resetConfig call). On an empty ring it yields the goroutine with
+// runtime.Gosched rather than blocking, then rechecks the done signal. When
+// done is signalled the remaining ring items are drained before returning.
+//
+// why (V3-P9): replacing the channel range with a lock-free ring Pop removes
+// the channel mutex from the consumer hot path, completing the V3 sub-500 ns
+// target.
 func ProcessLogEvent() {
 	configMu.RLock()
-	currentCh := ch
+	currentRing := atomicRing.Load()
+	done := ringDoneCh
 	configMu.RUnlock()
 
-	for e := range currentCh {
-		configMu.RLock()
-		processors := EventPreProcessors
-		configMu.RUnlock()
-		for _, observer := range processors {
-			observer.PreProcess(e.Level, e.Data)
+	for {
+		e, ok := currentRing.Pop()
+		if !ok {
+			select {
+			case <-done:
+				// Drain any events written between the last Pop and the done signal.
+				for currentRing.Len() > 0 {
+					if ev, ok2 := currentRing.Pop(); ok2 {
+						dispatchEvent(ev)
+					}
+				}
+				return
+			default:
+				runtime.Gosched()
+				continue
+			}
 		}
+		dispatchEvent(e)
+	}
+}
+
+// dispatchEvent forwards e to every registered PreProcessor under a short RLock.
+func dispatchEvent(e LogEvent) {
+	configMu.RLock()
+	processors := EventPreProcessors
+	configMu.RUnlock()
+	for _, observer := range processors {
+		observer.PreProcess(e.Level, e.Data)
 	}
 }
 
@@ -641,9 +764,10 @@ func ProcessLogEvent() {
 // The old channel is closed after the pointer swap so the previous
 // ProcessLogEvent goroutine exits cleanly rather than leaking.
 func resetConfig() {
-	// Build the new config and channel before acquiring the lock to
-	// minimise lock-hold time — encoder factory can take allocations.
-	newCh := make(chan LogEvent, int(channelCapacity.Load()))
+	// Build the new ring buffer, done channel, and config before acquiring the
+	// lock to minimise lock-hold time — encoder factory can take allocations.
+	newRing := newMpscRingBuffer()
+	newDoneCh := make(chan struct{})
 	encoderObj := encoder.DefaultEncoderFactory(enum.EncoderJSON)
 	newCfg := &Config{
 		minLevel:           DafaultLevel,
@@ -711,10 +835,22 @@ func resetConfig() {
 	// is not yet visible to any other goroutine at this point.
 	newCfg.defaultFieldsRendered = buildRenderedFields(newCfg.defaultFields)
 
+	var oldDoneCh chan struct{}
 	configMu.Lock()
-	ch = newCh
+	// why: atomicRing must be stored inside configMu.Lock so that any concurrent
+	// PublishLog that loads atomicRing always sees a ring from the current epoch.
+	// Storing outside the lock could let a reader load the stale ring while
+	// resetConfig has already replaced it (V3-P9 / LLD §5.1).
+	atomicRing.Store(newRing)
+	oldDoneCh = ringDoneCh
+	ringDoneCh = newDoneCh
 	defaultConfig = newCfg
 	EventPreProcessors = make(map[string]preProcessingObserverContract)
+	// why: mirror the reset into the atomic so HasEventPreProcessors immediately
+	// observes false after TestResetConfig is called in tests (and at init).
+	// Without this store, the atomic would retain a stale true from a previous
+	// InitPreProcessors call across test resets (V3-P1 / LLD §3.1).
+	hasPreProcessorsAtomic.Store(false)
 	// why: restrictedFieldsSet must be rebuilt here so that
 	// ValidateandParseLogField works correctly from the very first call —
 	// even before any SetDefaultFields call is made. This is the fix for D-8:
@@ -727,17 +863,20 @@ func resetConfig() {
 	// tests (and at init). Without this store, the atomic would retain a
 	// stale value from a previous SetMinLevel call across test resets.
 	atomicMinLevel.Store(int64(newCfg.minLevel))
+	// why: storeHotSnapshot must be called after defaultConfig, restrictedFieldsSet,
+	// and atomicMinLevel are all written, so the published pointer contains a
+	// fully-consistent reset snapshot. Readers that call GetHotSnapshot after
+	// configMu.Unlock() will see the reset state without ever acquiring the lock
+	// (V3-P2 / LLD §4.1 / Test_GetHotSnapshot_NilSafe).
+	storeHotSnapshot()
 	configMu.Unlock()
 
-	// why: the old channel is intentionally not closed here. resetConfig
-	// is a test-only path (called once from init at program start; the
-	// test shim TestResetConfig calls it in unit tests only). Closing the
-	// old channel while a concurrent PublishLog might still hold an RLock
-	// and be mid-send would require two-phase coordination that adds
-	// complexity beyond this story's scope. The pre-existing goroutine
-	// leak (old ProcessLogEvent blocking on the unreferenced channel) is
-	// a known trade-off tracked separately; it is harmless in test
-	// binaries which exit after the test run completes.
+	// Close the old ringDoneCh (outside the lock) to signal the previous
+	// ProcessLogEvent goroutine to drain and exit. nil on the very first call
+	// from init (before any goroutine has started).
+	if oldDoneCh != nil {
+		close(oldDoneCh)
+	}
 	go ProcessLogEvent()
 }
 
