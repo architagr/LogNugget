@@ -1,0 +1,30 @@
+version: "2"
+linters:
+  enable:
+    - gofmt
+    - govet
+    - staticcheck
+    - gosimple
+    - ineffassign
+    - unused
+    - errcheck
+    - bodyclose
+    - noctx
+    - godot
+  disable:
+    - depguard
+linters-settings:
+  godot:
+    scope: declarations
+    capital: false
+run:
+  timeout: 5m
+  tests: false
+issues:
+  exclude-rules:
+    - path: "_test.go"
+      linters:
+        - errcheck
+    - path: "test_only_helpers.go"
+      linters:
+        - unused
