@@ -44,6 +44,18 @@ func Test_AppendQuotedLevel_NoAlloc(t *testing.T) {
 	}
 }
 
+// Test_AppendQuotedLevel_UnknownLevel verifies that a level value not in the
+// switch falls back to AppendQuotedString without panicking and produces a
+// valid quoted JSON string.
+func Test_AppendQuotedLevel_UnknownLevel(t *testing.T) {
+	unknown := enum.LogLevel(99)
+	got := string(AppendQuotedLevel(nil, unknown))
+	// Must be a quoted, non-empty string — exact value depends on LogLevel.String().
+	if len(got) < 2 || got[0] != '"' || got[len(got)-1] != '"' {
+		t.Errorf("unknown level fallback produced invalid JSON string: %s", got)
+	}
+}
+
 // Test_AppendQuotedLevel_AppendToExisting verifies AppendQuotedLevel correctly
 // appends to a non-nil dst rather than overwriting it.
 func Test_AppendQuotedLevel_AppendToExisting(t *testing.T) {
