@@ -8,7 +8,9 @@
 // acquire configMu (read). This satisfies the race-freedom requirement
 // tracked in issue #54 / story 039 without the allocation overhead of a
 // copy-on-write atomic.Pointer approach (see bench-baseline.txt for
-// the < 1 µs budget).
+// the < 1 µs budget). Hot-path booleans (HasEventPreProcessors) are
+// additionally mirrored into atomic.Bool fields so the most frequent
+// callers pay a single load instruction rather than a full RLock pair.
 package config
 
 import (
@@ -54,6 +56,18 @@ var (
 // on the filtered path removes ~200 ns of contention per filtered event,
 // keeping the overall call budget inside the < 1 µs SLO (Epic V2 / LLD §2.1).
 var atomicMinLevel atomic.Int64
+
+// hasPreProcessorsAtomic mirrors len(EventPreProcessors) > 0 as an atomic.Bool
+// so that HasEventPreProcessors can short-circuit without acquiring configMu.
+// It is stored inside configMu.Lock in every mutator (InitPreProcessors,
+// AddPreProcessors, RemovePreProcessor, resetConfig) to stay consistent with
+// the guarded map.
+//
+// why: the former RLock+RUnlock pair in HasEventPreProcessors cost ~80 ns on the
+// hot log path (V3-P1 / LLD §3.1). atomic.Bool.Load is a single memory barrier
+// with no scheduler interaction, bringing the check to < 1 ns/op (see
+// BenchmarkHasEventPreProcessors in preprocessor_gate_bench_test.go).
+var hasPreProcessorsAtomic atomic.Bool
 
 // Compile-time width guard: enum.LogLevel must fit in int64 so the atomic
 // store is lossless. If LogLevel ever widens beyond int64 this line will
@@ -254,6 +268,9 @@ func InitPreProcessors(observers ...preProcessingObserverContract) {
 	for _, observer := range observers {
 		EventPreProcessors[observer.Name()] = observer
 	}
+	// why: store inside the lock so HasEventPreProcessors sees a consistent value
+	// with respect to every other configMu writer (V3-P1 / LLD §3.1).
+	hasPreProcessorsAtomic.Store(len(EventPreProcessors) > 0)
 }
 
 // AddPreProcessors registers one or more pre-processors into the global
@@ -264,17 +281,22 @@ func AddPreProcessors(observers ...preProcessingObserverContract) {
 	for _, observer := range observers {
 		EventPreProcessors[observer.Name()] = observer
 	}
+	// why: store inside the lock so HasEventPreProcessors sees a consistent value
+	// with respect to every other configMu writer (V3-P1 / LLD §3.1).
+	hasPreProcessorsAtomic.Store(len(EventPreProcessors) > 0)
 }
 
 // HasEventPreProcessors reports whether at least one pre-processor is
-// registered. It acquires configMu.RLock so it is safe for concurrent use and
-// produces no data races. The hot path in logWithSkip calls this instead of
-// reading EventPreProcessors directly (which is an unsynchronised map access).
+// registered. It reads hasPreProcessorsAtomic with a single atomic load —
+// no lock is acquired — making it safe for concurrent use with zero contention
+// on the hot log path (V3-P1 / LLD §3.1).
+//
+// why: the former RLock+RUnlock pair cost ~80 ns per call; an atomic.Bool.Load
+// costs < 1 ns. The value is kept consistent by all mutators (InitPreProcessors,
+// AddPreProcessors, RemovePreProcessor, resetConfig) which store to
+// hasPreProcessorsAtomic inside their configMu.Lock sections.
 func HasEventPreProcessors() bool {
-	configMu.RLock()
-	n := len(EventPreProcessors)
-	configMu.RUnlock()
-	return n > 0
+	return hasPreProcessorsAtomic.Load()
 }
 
 // RemovePreProcessor deletes the named pre-processor from the global map.
@@ -283,6 +305,9 @@ func RemovePreProcessor(name string) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	delete(EventPreProcessors, name)
+	// why: store inside the lock so HasEventPreProcessors sees a consistent value
+	// with respect to every other configMu writer (V3-P1 / LLD §3.1).
+	hasPreProcessorsAtomic.Store(len(EventPreProcessors) > 0)
 }
 
 // SetMinLevel sets the minimum log level for the logger. It stores the level
@@ -715,6 +740,11 @@ func resetConfig() {
 	ch = newCh
 	defaultConfig = newCfg
 	EventPreProcessors = make(map[string]preProcessingObserverContract)
+	// why: mirror the reset into the atomic so HasEventPreProcessors immediately
+	// observes false after TestResetConfig is called in tests (and at init).
+	// Without this store, the atomic would retain a stale true from a previous
+	// InitPreProcessors call across test resets (V3-P1 / LLD §3.1).
+	hasPreProcessorsAtomic.Store(false)
 	// why: restrictedFieldsSet must be rebuilt here so that
 	// ValidateandParseLogField works correctly from the very first call —
 	// even before any SetDefaultFields call is made. This is the fix for D-8:
