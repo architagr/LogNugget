@@ -26,17 +26,23 @@ import (
 )
 
 var (
-	DafaultLevel       enum.LogLevel      = enum.LevelInfo   // Default log level
-	DafaultEncoderType enum.LogEncodeType = enum.EncoderJSON // Default encoder type
+	// DafaultLevel is the minimum log level applied when no explicit level has been set.
+	DafaultLevel enum.LogLevel = enum.LevelInfo
+	// DafaultEncoderType is the encoder format used when no explicit encoder has been set.
+	DafaultEncoderType enum.LogEncodeType = enum.EncoderJSON
 	// DefaultAddSource is the package default for whether source file/line
 	// information is appended to every log entry. It is false by design so
 	// that zero-config deployments do not pay the runtime.Callers overhead
 	// (D-7). Callers may opt in explicitly via config.SetAddSource(true).
-	DefaultAddSource  bool      = false
-	DefaultOutput     io.Writer = os.Stdout    // Default output writer
-	DefaultTimeFormat string    = time.RFC3339 // Default time format for log entries
-	DafaultLogBuffer  int       = 1000         // Default buffer size for logs
-	DefaultPrefix     string    = "custom."
+	DefaultAddSource bool = false
+	// DefaultOutput is the writer used for log output when none has been configured.
+	DefaultOutput io.Writer = os.Stdout
+	// DefaultTimeFormat is the time layout applied to log entry timestamps when none has been configured.
+	DefaultTimeFormat string = time.RFC3339
+	// DafaultLogBuffer is the default channel buffer size for the log dispatch pipeline.
+	DafaultLogBuffer int = 1000
+	// DefaultPrefix is prepended to user-supplied field keys that collide with reserved log keys.
+	DefaultPrefix string = "custom."
 )
 
 // atomicMinLevel mirrors defaultConfig.minLevel as an atomic.Int64 so that
@@ -167,17 +173,30 @@ func GetHotSnapshot() HotSnapshot {
 	return snap
 }
 
+// PublishLogMessageHookContract is the interface that log-level hooks must
+// implement. Hooks are registered via RegisterHook and called by the pre-processor
+// fan-out stage for every matching log event.
 type PublishLogMessageHookContract interface {
 	PublishLogMessage(entry []byte)
 	Name() string
 }
+
+// StaticEnvFieldsParser is a function that returns a map of static fields
+// to be merged into every log line at startup. Pass it to SetStaticEnvFieldsParser.
 type StaticEnvFieldsParser = func() map[string]any
+
+// ContextFieldsParser is the legacy per-request context field extractor.
+// It receives a context and returns a map of fields to merge into the log line.
+// Prefer ContextFieldsAppender for zero-allocation hot paths.
 type ContextFieldsParser = func(ctx context.Context) map[string]any
 
 func init() {
 	resetConfig()
 }
 
+// Config holds the active logger configuration. All fields are guarded by
+// configMu; use the exported Set* mutators and Get* accessors rather than
+// reading or writing fields directly.
 type Config struct {
 	minLevel              enum.LogLevel                      // Minimum log level to log
 	encoderType           enum.LogEncodeType                 // Encoder type to use for logging
@@ -195,6 +214,9 @@ type Config struct {
 	hooks                 map[enum.LogLevel]map[string]PublishLogMessageHookContract
 }
 
+// LogEvent is a single serialised log message dispatched through the pipeline.
+// Level is used by pre-processors to route the event to matching hooks;
+// Data holds the fully encoded log line (e.g. a JSON object with a trailing newline).
 type LogEvent struct {
 	Level enum.LogLevel
 	Data  []byte
