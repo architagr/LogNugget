@@ -69,6 +69,20 @@ var atomicMinLevel atomic.Int64
 // BenchmarkHasEventPreProcessors in preprocessor_gate_bench_test.go).
 var hasPreProcessorsAtomic atomic.Bool
 
+// hotSnapshotPtr holds the current HotSnapshot as an atomic pointer so that
+// GetHotSnapshot can load the snapshot with a single memory barrier instead of
+// acquiring configMu.RLock and copying the struct field-by-field.
+//
+// why: the former configMu.RLock + struct copy path cost ~120-200 ns under
+// contention on the read side. atomic.Pointer.Load is a single instruction with
+// no scheduler interaction, making the read path allocation-free and
+// contention-free (V3-P2 / LLD §4.1 / ~120 ns saving per log event).
+//
+// Invariant: hotSnapshotPtr must never be nil after package init. It is stored
+// inside every configMu.Lock scope (in all Set* mutators and in resetConfig)
+// so readers always observe a fully-initialised snapshot.
+var hotSnapshotPtr atomic.Pointer[HotSnapshot]
+
 // Compile-time width guard: enum.LogLevel must fit in int64 so the atomic
 // store is lossless. If LogLevel ever widens beyond int64 this line will
 // produce a compile error, not a silent data truncation.
@@ -153,38 +167,51 @@ func GetAtomicMinLevel() enum.LogLevel {
 	return enum.LogLevel(atomicMinLevel.Load())
 }
 
-// GetHotSnapshot captures all hot-path config fields under a single
-// configMu.RLock and returns them as a HotSnapshot. The encoder's
-// OpenBytes and CloseBytes are fetched after the lock is released because
-// they return constant slices that never change after encoder construction.
+// storeHotSnapshot builds a fresh HotSnapshot from defaultConfig and
+// restrictedFieldsSet and atomically publishes it to hotSnapshotPtr.
 //
-// why: one RLock per log call replaces the 6+ individual RLock/RUnlock pairs
-// that existed when logWithSkip called GetConfig().AddSource(),
-// GetConfig().DefaultFields(), etc. separately. The reduction from ~1.2 µs
-// to ~200 µs lock overhead is measured in bench-baseline.txt (Epic V2 P1).
+// Precondition: caller must hold configMu (write lock). Calling this outside
+// the lock would allow a concurrent Set* writer to produce a snapshot that
+// mixes fields from two different writes, violating the atomic-visibility
+// guarantee (V3-P2 / LLD §4.1).
 //
-// Callers must not mutate any map field in the returned snapshot.
-func GetHotSnapshot() HotSnapshot {
-	configMu.RLock()
-	snap := HotSnapshot{
+// why: building the snapshot inside the lock ensures that every field in the
+// published pointer is consistent with respect to each other. Readers that
+// call GetHotSnapshot after the pointer is stored see a coherent snapshot
+// without ever acquiring configMu.
+func storeHotSnapshot() {
+	snap := &HotSnapshot{
 		AddSource:        defaultConfig.addSource,
 		TimeFormat:       defaultConfig.timeFormat,
-		DefaultFields:    defaultConfig.defaultFields,         // DO NOT MUTATE — shared reference
-		Rendered:         defaultConfig.defaultFieldsRendered, // DO NOT MUTATE — shared reference
+		DefaultFields:    defaultConfig.defaultFields,
+		Rendered:         defaultConfig.defaultFieldsRendered,
 		StaticFields:     defaultConfig.parsedStaticFields,
 		ContextParser:    defaultConfig.contextParser,
 		ContextAppender:  defaultConfig.contextAppender,
 		Encoder:          defaultConfig.encoderObj,
 		EncoderType:      defaultConfig.encoderType,
-		RestrictedFields: restrictedFieldsSet, // DO NOT MUTATE — shared reference
+		RestrictedFields: restrictedFieldsSet,
 	}
-	configMu.RUnlock()
-	// Call encoder methods outside the lock — they return package-level
-	// constant slices that are written once at encoder construction and
-	// never mutated.
+	// why: OpenBytes/CloseBytes return package-level constant slices written
+	// once at encoder construction and never mutated. They are safe to call
+	// inside the lock without risk of circular locking.
 	snap.EncoderOpen = snap.Encoder.OpenBytes()
 	snap.EncoderClose = snap.Encoder.CloseBytes()
-	return snap
+	hotSnapshotPtr.Store(snap)
+}
+
+// GetHotSnapshot returns the current hot-path config snapshot via a single
+// atomic.Pointer load. No lock is acquired; the returned value is a complete,
+// consistent snapshot published by the last Set* mutator or resetConfig call.
+//
+// why: replacing the former configMu.RLock + struct copy with a single
+// atomic.Pointer.Load removes ~120 ns of lock overhead per log event, the
+// largest single saving in Epic V3 (LLD §4.1 / bench-baseline.txt).
+//
+// Callers must treat every map field (DefaultFields, Rendered, RestrictedFields)
+// as read-only; they are shared references — do not mutate them.
+func GetHotSnapshot() HotSnapshot {
+	return *hotSnapshotPtr.Load()
 }
 
 // PublishLogMessageHookContract is the interface that log-level hooks must
@@ -313,25 +340,33 @@ func RemovePreProcessor(name string) {
 // SetMinLevel sets the minimum log level for the logger. It stores the level
 // both in defaultConfig (guarded by configMu) and in atomicMinLevel so that
 // the lock-free gate in GetAtomicMinLevel immediately observes the change.
+// storeHotSnapshot is called inside the lock so GetHotSnapshot immediately
+// reflects the new level on the atomic read path (V3-P2 / LLD §4.1).
 // Safe for concurrent use.
 func SetMinLevel(level enum.LogLevel) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.minLevel = level
 	atomicMinLevel.Store(int64(level))
+	storeHotSnapshot()
 }
 
-// SetTimeFormat sets the time format for log entries. Safe for
-// concurrent use.
+// SetTimeFormat sets the time format for log entries. storeHotSnapshot is
+// called inside the lock so the atomic snapshot immediately reflects the new
+// format without requiring callers to hold configMu (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetTimeFormat(format string) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.timeFormat = format
+	storeHotSnapshot()
 }
 
 // SetEncoderType sets the encoder type for the logger. If the requested
-// encoder type is unknown, it falls back to EncoderJSON. Safe for
-// concurrent use.
+// encoder type is unknown, it falls back to EncoderJSON. storeHotSnapshot is
+// called inside the lock so the atomic snapshot immediately reflects the new
+// encoder and its OpenBytes/CloseBytes constants (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetEncoderType(encoderType enum.LogEncodeType) {
 	var err error
 
@@ -345,18 +380,26 @@ func SetEncoderType(encoderType enum.LogEncodeType) {
 	}
 
 	defaultConfig.encoderType = encoderType
+	storeHotSnapshot()
 }
 
 // SetAddSource sets whether source file and line information is appended
-// to every log entry. Safe for concurrent use.
+// to every log entry. storeHotSnapshot is called inside the lock so the
+// atomic snapshot immediately reflects the new AddSource flag (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetAddSource(addSource bool) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.addSource = addSource
+	storeHotSnapshot()
 }
 
 // SetOutput sets the output writer for the logger. A nil argument is
-// silently replaced with DefaultOutput. Safe for concurrent use.
+// silently replaced with DefaultOutput. output is not part of HotSnapshot
+// (it is accessed via GetConfig().Output() on the write path), but
+// storeHotSnapshot is called here for consistency so the snapshot remains
+// fully up-to-date with the rest of defaultConfig (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetOutput(output io.Writer) {
 	if output == nil {
 		output = DefaultOutput
@@ -364,6 +407,7 @@ func SetOutput(output io.Writer) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.output = output
+	storeHotSnapshot()
 }
 
 // PublishLog sends Data onto the dispatch channel. Safe for concurrent use;
@@ -391,7 +435,10 @@ func PublishLog(Level enum.LogLevel, Data []byte) {
 }
 
 // SetLogBufferMaxSize sets the maximum buffer size for logs. Values ≤ 0
-// are silently replaced with 20. Safe for concurrent use.
+// are silently replaced with 20. storeHotSnapshot is called inside the lock
+// for consistency; logBufferMaxSize itself is not a HotSnapshot field but the
+// call keeps the snapshot fully synchronised with defaultConfig (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetLogBufferMaxSize(size int) {
 	if size <= 0 {
 		size = 20 // Default buffer size
@@ -399,10 +446,14 @@ func SetLogBufferMaxSize(size int) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.logBufferMaxSize = size
+	storeHotSnapshot()
 }
 
 // SetRate sets the rate at which buffered logs are pushed to output.
-// Values ≤ 0 are silently replaced with 1 second. Safe for concurrent use.
+// Values ≤ 0 are silently replaced with 1 second. storeHotSnapshot is called
+// inside the lock for consistency; rate itself is not a HotSnapshot field but
+// the call keeps the snapshot fully synchronised with defaultConfig (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetRate(rate time.Duration) {
 	if rate <= 0 {
 		rate = 1 * time.Second // Default rate is 1 sec
@@ -410,6 +461,7 @@ func SetRate(rate time.Duration) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.rate = rate
+	storeHotSnapshot()
 }
 
 // restrictedFieldsSet is the O(1) replacement for the former restrictedFields
@@ -502,7 +554,9 @@ func ParseLogField(key string, value any) string {
 
 // SetStaticEnvFieldsParser sets the function that extracts static
 // environment fields merged into every log line. Passing nil clears the
-// field. Safe for concurrent use.
+// field. storeHotSnapshot is called inside the lock so the atomic snapshot
+// immediately reflects the new StaticFields fragment (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
 	var parsed string
 	if parser != nil {
@@ -517,24 +571,31 @@ func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.parsedStaticFields = parsed
+	storeHotSnapshot()
 }
 
 // SetContextFieldsParser sets the function that extracts per-request
-// context fields. Safe for concurrent use.
+// context fields. storeHotSnapshot is called inside the lock so the atomic
+// snapshot immediately reflects the new ContextParser (V3-P2 / LLD §4.1).
+// Safe for concurrent use.
 func SetContextFieldsParser(parser ContextFieldsParser) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.contextParser = parser
+	storeHotSnapshot()
 }
 
 // SetContextFieldsAppender sets the zero-alloc context field writer.
 // When set, it takes precedence over any ContextFieldsParser on the hot path.
 // The appender receives the entry buffer and must append ,key:value fragments
-// for each context field, returning the extended buffer. Safe for concurrent use.
+// for each context field, returning the extended buffer. storeHotSnapshot is
+// called inside the lock so the atomic snapshot immediately reflects the new
+// ContextAppender (V3-P2 / LLD §4.1). Safe for concurrent use.
 func SetContextFieldsAppender(appender ContextFieldsAppender) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	defaultConfig.contextAppender = appender
+	storeHotSnapshot()
 }
 
 // SetChannelCapacity sets the buffer size for the dispatch channel created by
@@ -620,6 +681,11 @@ func SetDefaultFields(fields map[enum.DefaultLogKey]string) {
 	// under the same write lock to keep restrictedFieldsSet and
 	// defaultFieldsRendered consistent (ARCH-6 / acceptance criterion 3).
 	defaultConfig.defaultFieldsRendered = buildRenderedFields(defaultConfig.defaultFields)
+	// why: storeHotSnapshot must be called after both buildRestrictedSet and
+	// buildRenderedFields so the published snapshot contains the fully-rebuilt
+	// maps. A snapshot stored before either rebuild would expose stale map
+	// references to concurrent readers on the atomic path (V3-P2 / LLD §4.1).
+	storeHotSnapshot()
 }
 
 // GetConfig returns a pointer to the current logger configuration.
@@ -757,6 +823,12 @@ func resetConfig() {
 	// tests (and at init). Without this store, the atomic would retain a
 	// stale value from a previous SetMinLevel call across test resets.
 	atomicMinLevel.Store(int64(newCfg.minLevel))
+	// why: storeHotSnapshot must be called after defaultConfig, restrictedFieldsSet,
+	// and atomicMinLevel are all written, so the published pointer contains a
+	// fully-consistent reset snapshot. Readers that call GetHotSnapshot after
+	// configMu.Unlock() will see the reset state without ever acquiring the lock
+	// (V3-P2 / LLD §4.1 / Test_GetHotSnapshot_NilSafe).
+	storeHotSnapshot()
 	configMu.Unlock()
 
 	// why: the old channel is intentionally not closed here. resetConfig
