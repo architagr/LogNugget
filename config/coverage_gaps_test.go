@@ -103,7 +103,7 @@ func Test_AppendAttr_KindAny_Float32(t *testing.T) {
 }
 
 func Test_AppendAttr_KindAny_Float32_NaN(t *testing.T) {
-	got := string(config.AppendAttr(nil, "k", model.LogAttr{Key: "k", Value: float32(float64(^uint32(0)>>1+1))}))
+	got := string(config.AppendAttr(nil, "k", model.LogAttr{Key: "k", Value: float32(float64(^uint32(0)>>1 + 1))}))
 	// any non-panic result is acceptable; just verify it doesn't crash
 	_ = got
 }

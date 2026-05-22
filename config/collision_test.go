@@ -43,11 +43,11 @@ func Test_ValidateAndParse_PrefixesCollidingKey(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		setup       func() // optional config mutation before assertion
-		teardown    func() // optional cleanup
-		inputKey    string
-		inputValue  any
+		name         string
+		setup        func() // optional config mutation before assertion
+		teardown     func() // optional cleanup
+		inputKey     string
+		inputValue   any
 		wantPrefixed bool // true → output should contain "custom.<key>"
 	}{
 		// --- Built-in defaults (no SetDefaultFields call needed) ---

@@ -25,9 +25,9 @@ import (
 // test is the canonical proof that issue #54 is resolved.
 func Test_Race_ResetConfig_UnderConcurrentSet(t *testing.T) {
 	const (
-		numWriters  = 10
+		numWriters   = 10
 		numResetters = 5
-		iterations  = 20
+		iterations   = 20
 	)
 
 	var wg sync.WaitGroup
@@ -128,9 +128,9 @@ func Test_Race_ProcessLogEvent_UnderConcurrentReset(t *testing.T) {
 // result is a data race on the pointer itself.
 func Test_Race_GetConfig_UnderConcurrentSet(t *testing.T) {
 	const (
-		numReaders  = 8
-		numWriters  = 8
-		iterations  = 25
+		numReaders = 8
+		numWriters = 8
+		iterations = 25
 	)
 
 	var wg sync.WaitGroup

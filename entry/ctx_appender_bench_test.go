@@ -65,7 +65,7 @@ func BenchmarkLogEntry_CtxParser_10(b *testing.B) {
 		return map[string]any{
 			"req_id":  "req-abc",
 			"user_id": "bench-user",
-			"k1": "v1", "k2": "v2", "k3": "v3",
+			"k1":      "v1", "k2": "v2", "k3": "v3",
 			"k4": "v4", "k5": "v5", "k6": "v6",
 			"k7": "v7", "k8": "v8", "k9": "v9",
 		}

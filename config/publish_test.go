@@ -197,7 +197,7 @@ func Test_PublishLog(t *testing.T) {
 	t.Run("RaceConcurrent", func(t *testing.T) {
 		const (
 			numGoroutines = 100
-			numPublishes  = 1  // 1 per goroutine = 100 total; fits in channel buffer
+			numPublishes  = 1 // 1 per goroutine = 100 total; fits in channel buffer
 			wantTotal     = numGoroutines * numPublishes
 		)
 
