@@ -83,6 +83,25 @@ var hasPreProcessorsAtomic atomic.Bool
 // so readers always observe a fully-initialised snapshot.
 var hotSnapshotPtr atomic.Pointer[HotSnapshot]
 
+// atomicCh holds the current dispatch channel as an atomic.Value so that
+// PublishLog can load the channel with a single memory barrier instead of
+// acquiring configMu.RLock and copying the pointer.
+//
+// Invariant: atomicCh must never be nil after package init. It is stored
+// inside every configMu.Lock scope in resetConfig (the only site that
+// creates a new channel) so readers always observe a valid, writable channel.
+//
+// why: the former configMu.RLock + pointer copy path in PublishLog cost ~50 ns
+// per hot-path call. atomic.Value.Load is a single memory barrier with no
+// scheduler interaction, eliminating lock contention on the send path entirely
+// and completing the V3 goal of zero RLock acquisitions on the hot log path
+// (V3-P3 / LLD §5.1 / bench-baseline.txt).
+//
+// Type discipline: only chan LogEvent values are ever stored; the Load cast
+// is guarded by the invariant above. A type mismatch panic would indicate a
+// programming error (wrong type stored), not a runtime condition.
+var atomicCh atomic.Value // stores chan LogEvent; written under configMu.Lock, read without lock
+
 // Compile-time width guard: enum.LogLevel must fit in int64 so the atomic
 // store is lossless. If LogLevel ever widens beyond int64 this line will
 // produce a compile error, not a silent data truncation.
@@ -419,15 +438,16 @@ func SetOutput(output io.Writer) {
 // returns. Data therefore has exclusive ownership; the background goroutine
 // (ProcessLogEvent) can read it safely without a defensive copy.
 //
-// why (lock discipline): the RLock is taken only for the pointer snapshot of
-// ch, not across the send itself. resetConfig never closes the old channel
-// (see comment there), so there is no "send on closed channel" risk.
-// Releasing the RLock before the send avoids holding it during a potentially
-// blocking channel operation.
+// why (V3-P3 lock elimination): the former configMu.RLock + pointer copy was
+// replaced by a single atomic.Value.Load on atomicCh. No lock is held during
+// either the load or the channel send, completing the V3 goal of zero RLock
+// acquisitions on the hot log path (~50 ns saving per call; see
+// BenchmarkPublishLog in atomic_channel_bench_test.go and bench-baseline.txt).
+// atomicCh is always stored inside configMu.Lock in resetConfig before any
+// goroutine can call PublishLog, so the Load always returns a valid channel
+// and the type assertion never panics under correct usage.
 func PublishLog(Level enum.LogLevel, Data []byte) {
-	configMu.RLock()
-	currentCh := ch
-	configMu.RUnlock()
+	currentCh := atomicCh.Load().(chan LogEvent)
 	currentCh <- LogEvent{
 		Level: Level,
 		Data:  Data,
@@ -804,6 +824,12 @@ func resetConfig() {
 
 	configMu.Lock()
 	ch = newCh
+	// why: atomicCh must be stored inside the same configMu.Lock scope as ch
+	// so that any concurrent PublishLog call that loads atomicCh always sees
+	// a channel that was created within the current configuration epoch. Storing
+	// outside the lock could allow a reader to load a stale channel while
+	// resetConfig has already replaced ch (V3-P3 / LLD §5.1).
+	atomicCh.Store(newCh)
 	defaultConfig = newCfg
 	EventPreProcessors = make(map[string]preProcessingObserverContract)
 	// why: mirror the reset into the atomic so HasEventPreProcessors immediately
@@ -834,12 +860,14 @@ func resetConfig() {
 	// why: the old channel is intentionally not closed here. resetConfig
 	// is a test-only path (called once from init at program start; the
 	// test shim TestResetConfig calls it in unit tests only). Closing the
-	// old channel while a concurrent PublishLog might still hold an RLock
-	// and be mid-send would require two-phase coordination that adds
-	// complexity beyond this story's scope. The pre-existing goroutine
-	// leak (old ProcessLogEvent blocking on the unreferenced channel) is
-	// a known trade-off tracked separately; it is harmless in test
-	// binaries which exit after the test run completes.
+	// old channel while a concurrent PublishLog might still be mid-send
+	// would require two-phase coordination that adds complexity beyond
+	// this story's scope (V3-P3 note: PublishLog no longer holds RLock,
+	// but a goroutine may be blocked on the send side of the old channel
+	// if it was pre-empted between Load and the send). The pre-existing
+	// goroutine leak (old ProcessLogEvent blocking on the unreferenced
+	// channel) is a known trade-off tracked separately; it is harmless in
+	// test binaries which exit after the test run completes.
 	go ProcessLogEvent()
 }
 
