@@ -222,6 +222,20 @@ All benchmarks from `go test -bench=. -benchmem -count=10 -run=^$ ./...` on Appl
 
 ---
 
+## API Stability
+
+LogNugget follows [Semantic Versioning](https://semver.org/):
+
+- **Patch** (v2.0.x): bug fixes, no API changes.
+- **Minor** (v2.x.0): backward-compatible additions. Existing callers need no changes.
+- **Major** (v3.0.0): breaking changes announced in [CHANGELOG.md](CHANGELOG.md) with migration notes.
+
+The public API surface is: `package lognugget` (Shutdown), `package entry` (NewLogEntry, LogEntry methods), `package config` (all Set* functions, ContextFieldsAppender), `package encoder` (Encoder interface, NewJSONEncoder, NewTextEncoder), `package model` (LogAttr, typed constructors), `package enum` (LogLevel, LogEncodeType, DefaultLogKey constants).
+
+Internal packages (`pipeline_stage`, `custom_time`) are not stable API — callers should not import them directly.
+
+---
+
 ## Hooks Support
 
 LogNugget supports hooks for fan-out to external systems:
