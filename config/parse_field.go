@@ -23,7 +23,55 @@ import (
 //
 // Safe for concurrent use; reads no shared state.
 func AppendQuotedString(dst []byte, s string) []byte {
-	return appendJSONString(dst, []byte(s))
+	return appendJSONStringStr(dst, s)
+}
+
+// appendJSONStringStr appends s to dst as an RFC 8259 JSON string. Operates
+// directly on the string header — no []byte(s) allocation on the hot path.
+// Invalid UTF-8 bytes are replaced with U+FFFD, matching appendJSONString.
+//
+// why: []byte(s) allocates a copy for every call (~20 ns, ~2 allocs/event).
+// Indexing the string directly via utf8.DecodeRuneInString eliminates that
+// alloc while preserving identical escape semantics (V3-P5 / issue #116).
+func appendJSONStringStr(dst []byte, s string) []byte {
+	dst = append(dst, '"')
+	for i := 0; i < len(s); {
+		b := s[i]
+		if b >= utf8.RuneSelf {
+			r, size := utf8.DecodeRuneInString(s[i:])
+			if r == utf8.RuneError && size == 1 {
+				dst = append(dst, '\xef', '\xbf', '\xbd') // U+FFFD replacement
+				i++
+				continue
+			}
+			dst = append(dst, s[i:i+size]...)
+			i += size
+			continue
+		}
+		switch cfgEscapeTable[b] {
+		case 0:
+			dst = append(dst, b)
+		case cfgEscHex:
+			dst = append(dst, '\\', 'u', '0', '0', cfgHexDigits[b>>4], cfgHexDigits[b&0xf])
+		case cfgEscQuot:
+			dst = append(dst, '\\', '"')
+		case cfgEscBksl:
+			dst = append(dst, '\\', '\\')
+		case cfgEscB:
+			dst = append(dst, '\\', 'b')
+		case cfgEscF:
+			dst = append(dst, '\\', 'f')
+		case cfgEscN:
+			dst = append(dst, '\\', 'n')
+		case cfgEscR:
+			dst = append(dst, '\\', 'r')
+		case cfgEscT:
+			dst = append(dst, '\\', 't')
+		}
+		i++
+	}
+	dst = append(dst, '"')
+	return dst
 }
 
 // appendJSONString appends src to dst as an RFC 8259 JSON string (including the
@@ -135,12 +183,12 @@ func init() {
 // AppendField is safe for concurrent use; it reads no shared state.
 func AppendField(dst []byte, key string, value any) []byte {
 	// Write the key as a quoted, RFC 8259 escaped JSON string.
-	dst = appendJSONString(dst, []byte(key))
+	dst = appendJSONStringStr(dst, key)
 	dst = append(dst, ':')
 
 	switch v := value.(type) {
 	case string:
-		dst = appendJSONString(dst, []byte(v))
+		dst = appendJSONStringStr(dst, v)
 
 	case int:
 		dst = strconv.AppendInt(dst, int64(v), 10)
@@ -214,12 +262,12 @@ func AppendField(dst []byte, key string, value any) []byte {
 // AppendAttr is safe for concurrent use; it reads no shared state.
 func AppendAttr(dst []byte, key string, attr model.LogAttr) []byte {
 	// Write the key as a quoted, RFC 8259 escaped JSON string.
-	dst = appendJSONString(dst, []byte(key))
+	dst = appendJSONStringStr(dst, key)
 	dst = append(dst, ':')
 
 	switch attr.Kind() {
 	case model.KindStr:
-		dst = appendJSONString(dst, []byte(attr.StrVal()))
+		dst = appendJSONStringStr(dst, attr.StrVal())
 
 	case model.KindInt:
 		dst = strconv.AppendInt(dst, attr.IntVal(), 10)
@@ -246,7 +294,7 @@ func AppendAttr(dst []byte, key string, attr model.LogAttr) []byte {
 		// call sites. New callers should use the typed constructors.
 		switch v := attr.Value.(type) {
 		case string:
-			dst = appendJSONString(dst, []byte(v))
+			dst = appendJSONStringStr(dst, v)
 		case int:
 			dst = strconv.AppendInt(dst, int64(v), 10)
 		case int8:
