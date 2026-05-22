@@ -185,7 +185,7 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 	e.buf = append(e.buf, '"')
 	e.buf = append(e.buf, ',')
 	e.buf = append(e.buf, snap.Rendered[enum.DefaultLogKeyLevel]...)
-	e.buf = config.AppendQuotedString(e.buf, level.String())
+	e.buf = config.AppendQuotedLevel(e.buf, level)
 	e.buf = append(e.buf, ',')
 	e.buf = append(e.buf, snap.Rendered[enum.DefaultLogKeyMessage]...)
 	e.buf = config.AppendQuotedString(e.buf, message)
