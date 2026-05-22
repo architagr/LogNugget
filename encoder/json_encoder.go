@@ -1,7 +1,5 @@
 package encoder
 
-import "unicode/utf8"
-
 // compile-time proof that JSONEncoder satisfies the Encoder interface.
 var _ Encoder = (*JSONEncoder)(nil)
 
@@ -20,8 +18,6 @@ const (
 	escT    uint8 = 8 // \t
 )
 
-var hexDigits = "0123456789abcdef"
-
 func init() {
 	for i := 0; i <= 0x1f; i++ {
 		jsonEscapeTable[i] = escHex
@@ -33,48 +29,6 @@ func init() {
 	jsonEscapeTable['\n'] = escN
 	jsonEscapeTable['\r'] = escR
 	jsonEscapeTable['\t'] = escT
-}
-
-// escapeJSON appends src to dst with RFC 8259 string escaping applied.
-// Invalid UTF-8 bytes are replaced with the Unicode replacement character (U+FFFD).
-// dst may be nil; a new slice is allocated as needed.
-func escapeJSON(dst, src []byte) []byte {
-	for i := 0; i < len(src); {
-		b := src[i]
-		if b >= utf8.RuneSelf {
-			r, size := utf8.DecodeRune(src[i:])
-			if r == utf8.RuneError && size == 1 {
-				dst = append(dst, '\xef', '\xbf', '\xbd') // U+FFFD replacement char
-				i++
-				continue
-			}
-			dst = append(dst, src[i:i+size]...)
-			i += size
-			continue
-		}
-		switch jsonEscapeTable[b] {
-		case 0:
-			dst = append(dst, b)
-		case escHex:
-			dst = append(dst, '\\', 'u', '0', '0', hexDigits[b>>4], hexDigits[b&0xf])
-		case escQuot:
-			dst = append(dst, '\\', '"')
-		case escBksl:
-			dst = append(dst, '\\', '\\')
-		case escB:
-			dst = append(dst, '\\', 'b')
-		case escF:
-			dst = append(dst, '\\', 'f')
-		case escN:
-			dst = append(dst, '\\', 'n')
-		case escR:
-			dst = append(dst, '\\', 'r')
-		case escT:
-			dst = append(dst, '\\', 't')
-		}
-		i++
-	}
-	return dst
 }
 
 // JSONEncoder wraps a pre-rendered log body in JSON object braces and appends

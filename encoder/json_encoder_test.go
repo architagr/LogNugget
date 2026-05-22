@@ -1,8 +1,6 @@
 package encoder
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -30,73 +28,17 @@ func Test_JSONEncoder_Append_WrapsInBraces(t *testing.T) {
 	}
 }
 
-// Test_JSONEncoder_Escape covers TS-16: escape table handles every RFC 8259 case.
-func Test_JSONEncoder_Escape(t *testing.T) {
+// Test_JSONEncoder_Append_EscapedBody verifies Append passes body bytes through
+// verbatim — escaping is the caller's responsibility (done by config.AppendQuotedString).
+func Test_JSONEncoder_Append_EscapedBody(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name string
-		in   []byte
-		want string
-	}{
-		{"double quote", []byte(`"`), `\"`},
-		{"backslash", []byte(`\`), `\\`},
-		{"backspace", []byte{'\b'}, `\b`},
-		{"formfeed", []byte{'\f'}, `\f`},
-		{"newline", []byte{'\n'}, `\n`},
-		{"carriage return", []byte{'\r'}, `\r`},
-		{"tab", []byte{'\t'}, `\t`},
-		{"null byte U+0000", []byte{0x00}, "\\u0000"},
-		{"control U+0001", []byte{0x01}, "\\u0001"},
-		{"control U+001F", []byte{0x1f}, "\\u001f"},
-		{"ascii printable", []byte("hello"), "hello"},
-		{"valid multibyte UTF-8", []byte("\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e"), "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e"},
-		{"invalid UTF-8 single byte", []byte{0xff}, "\xef\xbf\xbd"},
-		{"mixed", []byte("say \"hi\"\n"), "say \\\"hi\\\"\\n"},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := escapeJSON(nil, tc.in)
-			if string(got) != tc.want {
-				t.Fatalf("escapeJSON(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
-	}
-}
-
-// Test_JSONEncoder_Numerics_Unquoted verifies digit bytes pass through unchanged.
-func Test_JSONEncoder_Numerics_Unquoted(t *testing.T) {
-	t.Parallel()
-
-	cases := []string{"42", "3.14", "-1", "1e10", "0"}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc, func(t *testing.T) {
-			t.Parallel()
-			got := escapeJSON(nil, []byte(tc))
-			if string(got) != tc {
-				t.Fatalf("escapeJSON(%q) = %q; numerics must pass through unchanged", tc, got)
-			}
-		})
-	}
-}
-
-// Test_JSONEncoder_UnicodeGolden compares escapeJSON output against the golden file.
-func Test_JSONEncoder_UnicodeGolden(t *testing.T) {
-	t.Parallel()
-
-	// Explicit byte slice avoids NUL in source literal.
-	input := []byte{'"', 'h', 'e', 'l', 'l', 'o', '"', '\\', '\n', '\t', '\b', '\f', '\r', 0x00, 0x1f}
-	got := escapeJSON(nil, input)
-
-	golden := filepath.Join("..", "testdata", "golden", "unicode_escape.json")
-	want, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatalf("read golden: %v", err)
-	}
-	if string(got) != string(want) {
-		t.Fatalf("mismatch\ngot:  %q\nwant: %q", got, want)
+	enc := NewJSONEncoder()
+	// Body already escaped by the caller; Append must not re-escape.
+	body := []byte(`"key":"say \"hi\"\n"`)
+	got := enc.Append(nil, body)
+	want := "{" + string(body) + "}\n"
+	if string(got) != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }

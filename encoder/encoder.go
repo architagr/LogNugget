@@ -55,7 +55,7 @@ var noopCloseBytesNewline = []byte{'\n'}
 // CloseBytes returns "\n" (universal newline terminator, ARCH-14).
 type NoopFramer struct{}
 
-func (NoopFramer) OpenBytes() []byte { return nil }
+func (NoopFramer) OpenBytes() []byte  { return nil }
 func (NoopFramer) CloseBytes() []byte { return noopCloseBytesNewline }
 
 // DefaultEncoderFactory returns the Encoder for the given LogEncodeType.
