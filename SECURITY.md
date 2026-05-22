@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-LogNugget is currently pre-1.0. Security fixes are accepted for the active `v1.x` development line and the latest release/tag published from it.
+Supported versions: **v1.x** and **v2.x** (latest tag on `main`). Security fixes are accepted for both active lines.
 
 ## Reporting a Vulnerability
 
@@ -14,7 +14,7 @@ Use GitHub's private vulnerability reporting flow instead:
 2. Choose **Report a vulnerability**.
 3. Include the details listed below.
 
-If private vulnerability reporting is not yet visible, contact a maintainer listed in `MAINTAINERS.md` and ask for a private reporting channel before sharing exploit details.
+If private vulnerability reporting is not yet visible, email the maintainer at architagr@gmail.com and ask for a private reporting channel before sharing exploit details.
 
 ## What to Include
 
