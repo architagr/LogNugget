@@ -22,7 +22,6 @@ import (
 	"github.com/architagr/lognugget/test/support"
 )
 
-
 // drainSpyIntegration polls spy.Records() until at least one record is
 // available, failing after a time-bounded number of iterations.
 //

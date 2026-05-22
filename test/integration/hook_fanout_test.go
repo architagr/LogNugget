@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	pipelineStage "github.com/architagr/lognugget/pipeline_stage"
 	"github.com/architagr/lognugget/config"
 	"github.com/architagr/lognugget/enum"
+	pipelineStage "github.com/architagr/lognugget/pipeline_stage"
 	"github.com/architagr/lognugget/test/support"
 )
 
@@ -101,7 +101,7 @@ func Test_Integration_HookFanout_BothHooksCoexist(t *testing.T) {
 	infoPayload := []byte(`{"level":"info","msg":"coexist"}`)
 	debugPayload := []byte(`{"level":"debug","msg":"coexist"}`)
 
-	config.PublishLog(enum.LevelInfo, infoPayload)  // → allHook + infoHook
+	config.PublishLog(enum.LevelInfo, infoPayload)   // → allHook + infoHook
 	config.PublishLog(enum.LevelDebug, debugPayload) // → allHook only
 
 	// allHook must receive 2 events (info + debug).
