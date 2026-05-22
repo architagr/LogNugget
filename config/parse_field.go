@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/architagr/lognugget/enum"
 	"github.com/architagr/lognugget/model"
 )
 
@@ -26,13 +27,16 @@ func AppendQuotedString(dst []byte, s string) []byte {
 	return appendJSONStringStr(dst, s)
 }
 
-// appendJSONStringStr appends s to dst as an RFC 8259 JSON string. Operates
-// directly on the string header — no []byte(s) allocation on the hot path.
-// Invalid UTF-8 bytes are replaced with U+FFFD, matching appendJSONString.
+// appendJSONStringStr appends s to dst as an RFC 8259 JSON string (including
+// the surrounding double-quote characters). It operates directly on the string
+// header, avoiding the []byte(s) allocation that appendJSONString incurs.
+// Invalid UTF-8 bytes are replaced with the Unicode replacement character
+// (U+FFFD), matching appendJSONString semantics exactly.
 //
-// why: []byte(s) allocates a copy for every call (~20 ns, ~2 allocs/event).
-// Indexing the string directly via utf8.DecodeRuneInString eliminates that
-// alloc while preserving identical escape semantics (V3-P5 / issue #116).
+// why: []byte(s) allocates a copy on the heap for every call on the hot log
+// path (~20 ns, ~2 allocs/event). Operating on the string directly via
+// utf8.DecodeRuneInString and direct byte indexing eliminates that allocation
+// while keeping identical escape behaviour (V3-P5).
 func appendJSONStringStr(dst []byte, s string) []byte {
 	dst = append(dst, '"')
 	for i := 0; i < len(s); {
@@ -159,6 +163,33 @@ func init() {
 	cfgEscapeTable['\t'] = cfgEscT
 }
 
+// AppendQuotedLevel appends the JSON-quoted representation of l to dst and
+// returns the extended slice. Named levels (Debug, Info, Warn, Error, Fatal)
+// append pre-quoted constant byte slices — zero heap allocations. Unknown
+// levels fall back to AppendQuotedString(l.String()), which allocates.
+//
+// Safe for concurrent use; reads no shared state.
+//
+// why: level.String() allocates a string on every call; switching over the
+// five named constants and appending literal bytes eliminates ~1 alloc and
+// ~15 ns per log event on the hot path (V3-P6 / story #117).
+func AppendQuotedLevel(dst []byte, l enum.LogLevel) []byte {
+	switch l {
+	case enum.LevelDebug:
+		return append(dst, `"DEBUG"`...)
+	case enum.LevelInfo:
+		return append(dst, `"INFO"`...)
+	case enum.LevelWarn:
+		return append(dst, `"WARN"`...)
+	case enum.LevelError:
+		return append(dst, `"ERROR"`...)
+	case enum.LevelFatal:
+		return append(dst, `"FATAL"`...)
+	default:
+		return AppendQuotedString(dst, l.String())
+	}
+}
+
 // AppendField appends a JSON key-value fragment of the form `"key":value` to
 // dst and returns the extended slice. dst may be nil; a new slice is allocated
 // in that case.
@@ -262,12 +293,12 @@ func AppendField(dst []byte, key string, value any) []byte {
 // AppendAttr is safe for concurrent use; it reads no shared state.
 func AppendAttr(dst []byte, key string, attr model.LogAttr) []byte {
 	// Write the key as a quoted, RFC 8259 escaped JSON string.
-	dst = appendJSONStringStr(dst, key)
+	dst = appendJSONString(dst, []byte(key))
 	dst = append(dst, ':')
 
 	switch attr.Kind() {
 	case model.KindStr:
-		dst = appendJSONStringStr(dst, attr.StrVal())
+		dst = appendJSONString(dst, []byte(attr.StrVal()))
 
 	case model.KindInt:
 		dst = strconv.AppendInt(dst, attr.IntVal(), 10)
@@ -294,7 +325,7 @@ func AppendAttr(dst []byte, key string, attr model.LogAttr) []byte {
 		// call sites. New callers should use the typed constructors.
 		switch v := attr.Value.(type) {
 		case string:
-			dst = appendJSONStringStr(dst, v)
+			dst = appendJSONString(dst, []byte(v))
 		case int:
 			dst = strconv.AppendInt(dst, int64(v), 10)
 		case int8:

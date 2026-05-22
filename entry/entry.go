@@ -173,10 +173,16 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 	// calling AppendField, which would re-encode the key string on every call.
 	// buildRenderedFields pre-computes these at init and on SetDefaultFields so
 	// the hot path performs zero extra allocations for the three mandatory
-	// fields (ARCH-6 / LLD §6.5). AppendQuotedString handles RFC 8259 escaping
-	// of the value without the key-encoding overhead.
+	// fields (ARCH-6 / LLD §6.5).
 	e.buf = append(e.buf, snap.Rendered[enum.DefaultLogKeyTime]...)
-	e.buf = config.AppendQuotedString(e.buf, customTime.Format(customTime.TimeNow(), snap.TimeFormat))
+	// why: RFC 3339 chars (digits, T, Z, -, :, +, .) need no JSON escaping, so
+	// we write the surrounding quotes directly and let time.AppendFormat fill the
+	// value in-place. This eliminates the intermediate string alloc from
+	// customTime.Format and the second alloc inside AppendQuotedString — saving
+	// ~2 allocs and ~40 ns per log entry (V3-P4 / story #115).
+	e.buf = append(e.buf, '"')
+	e.buf = customTime.TimeNow().AppendFormat(e.buf, snap.TimeFormat)
+	e.buf = append(e.buf, '"')
 	e.buf = append(e.buf, ',')
 	e.buf = append(e.buf, snap.Rendered[enum.DefaultLogKeyLevel]...)
 	e.buf = config.AppendQuotedString(e.buf, level.String())
