@@ -155,7 +155,7 @@ func GetHotSnapshot() HotSnapshot {
 	snap := HotSnapshot{
 		AddSource:        defaultConfig.addSource,
 		TimeFormat:       defaultConfig.timeFormat,
-		DefaultFields:    defaultConfig.defaultFields,    // DO NOT MUTATE — shared reference
+		DefaultFields:    defaultConfig.defaultFields,         // DO NOT MUTATE — shared reference
 		Rendered:         defaultConfig.defaultFieldsRendered, // DO NOT MUTATE — shared reference
 		StaticFields:     defaultConfig.parsedStaticFields,
 		ContextParser:    defaultConfig.contextParser,
@@ -198,19 +198,19 @@ func init() {
 // configMu; use the exported Set* mutators and Get* accessors rather than
 // reading or writing fields directly.
 type Config struct {
-	minLevel              enum.LogLevel                      // Minimum log level to log
-	encoderType           enum.LogEncodeType                 // Encoder type to use for logging
-	encoderObj            encoder.Encoder                    // encoder for the data
-	addSource             bool                               // Whether to add source information to logs
-	output                io.Writer                          // Output writer for logs
-	logBufferMaxSize      int                                // max Buffer size for logs
-	rate                  time.Duration                      // Rate to push logs to output
-	parsedStaticFields    string                             // this is the satic fields
-	contextParser         ContextFieldsParser                // Function to extract context fields
-	contextAppender       ContextFieldsAppender              // High-performance context-field writer (P3)
-	defaultFields         map[enum.DefaultLogKey]string      // Default fields to log with every entry
-	defaultFieldsRendered map[enum.DefaultLogKey][]byte      // pre-rendered `"key":` prefix bytes; populated by buildRenderedFields
-	timeFormat            string                             // Time format for log entries
+	minLevel              enum.LogLevel                 // Minimum log level to log
+	encoderType           enum.LogEncodeType            // Encoder type to use for logging
+	encoderObj            encoder.Encoder               // encoder for the data
+	addSource             bool                          // Whether to add source information to logs
+	output                io.Writer                     // Output writer for logs
+	logBufferMaxSize      int                           // max Buffer size for logs
+	rate                  time.Duration                 // Rate to push logs to output
+	parsedStaticFields    string                        // this is the satic fields
+	contextParser         ContextFieldsParser           // Function to extract context fields
+	contextAppender       ContextFieldsAppender         // High-performance context-field writer (P3)
+	defaultFields         map[enum.DefaultLogKey]string // Default fields to log with every entry
+	defaultFieldsRendered map[enum.DefaultLogKey][]byte // pre-rendered `"key":` prefix bytes; populated by buildRenderedFields
+	timeFormat            string                        // Time format for log entries
 	hooks                 map[enum.LogLevel]map[string]PublishLogMessageHookContract
 }
 
