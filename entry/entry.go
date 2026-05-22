@@ -243,7 +243,11 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 	// Eliminates 2 allocs per call vs pre-P4 (en.Append + dataCopy). P4.
 	e.buf = append(e.buf, snap.EncoderClose...)
 	data := e.buf
-	e.buf = make([]byte, 0, initBufCap)
+	newCap := len(data)
+	if newCap < 64 {
+		newCap = 64
+	}
+	e.buf = make([]byte, 0, newCap)
 	config.PublishLog(level, data)
 	e.Put()
 }
