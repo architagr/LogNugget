@@ -52,9 +52,9 @@ jobs:
             if (pct < 85) { print "COVERAGE FAIL: " pkg " = " pct "% (< 85%)"; fail=1 }
           } END { if (fail) exit 1 }' cover-output.txt
       - name: Upload coverage report
-        uses: codecov/codecov-action@v1.0.2
+        uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          file: ./coverage.txt
+          files: ./coverage.txt
           flags: unittests
           name: codecov-umbrella

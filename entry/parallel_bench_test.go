@@ -27,11 +27,10 @@ func BenchmarkLognugget_Parallel_10CtxFields(b *testing.B) {
 	out := &parallelBenchWriter{}
 	config.SetMinLevel(enum.LevelDebug)
 	config.SetEncoderType(enum.EncoderJSON)
-	config.SetContextFieldsParser(func(ctx context.Context) map[string]any {
-		return map[string]any{
-			"k1": "v1", "k2": "v2", "k3": "v3", "k4": "v4", "k5": "v5",
-			"k6": "v6", "k7": "v7", "k8": "v8", "k9": "v9", "k10": "v10",
-		}
+	config.SetContextFieldsAppender(func(ctx context.Context, dst []byte) []byte {
+		dst = append(dst, `,"k1":"v1","k2":"v2","k3":"v3","k4":"v4","k5":"v5"`...)
+		dst = append(dst, `,"k6":"v6","k7":"v7","k8":"v8","k9":"v9","k10":"v10"`...)
+		return dst
 	})
 	unset := pipelineStage.NewUnsetLogEventPostProcessor(2*time.Second, 1000, out)
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, unset)
