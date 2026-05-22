@@ -73,19 +73,11 @@ func Benchmark_Log_Parallel_10CtxFields(b *testing.B) {
 	out := &MockWriter{}
 	config.SetMinLevel(enum.LevelDebug)
 	config.SetEncoderType(enum.EncoderJSON)
-	config.SetContextFieldsParser(func(ctx context.Context) map[string]any {
-		return map[string]any{
-			"trace_id":   "abc123def456",
-			"span_id":    "span789",
-			"request_id": "req-001",
-			"user_id":    "usr-42",
-			"session_id": "sess-x",
-			"region":     "us-east-1",
-			"service":    "api-gateway",
-			"version":    "1.2.3",
-			"env":        "production",
-			"pod":        "pod-abc",
-		}
+	config.SetContextFieldsAppender(func(ctx context.Context, dst []byte) []byte {
+		dst = append(dst, `,"trace_id":"abc123def456","span_id":"span789","request_id":"req-001"`...)
+		dst = append(dst, `,"user_id":"usr-42","session_id":"sess-x","region":"us-east-1"`...)
+		dst = append(dst, `,"service":"api-gateway","version":"1.2.3","env":"production","pod":"pod-abc"`...)
+		return dst
 	})
 
 	proc := pipelineStage.NewUnsetLogEventPostProcessor(2*time.Second, 500, out)
