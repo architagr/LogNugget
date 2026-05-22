@@ -30,6 +30,12 @@ import (
 //  3. Fill remaining channel capacity (bufSize-1 more events — channel is now full).
 //  4. Assert next send blocks; Release hook; assert unblocks.
 func Test_Integration_ChannelBuffersAndBlocks(t *testing.T) {
+	const bufSize = 10
+	// Set capacity to 10 and reset to apply it, then register cleanup to restore.
+	config.SetChannelCapacity(bufSize)
+	t.Cleanup(config.TestResetChannelCapacity)
+	config.TestResetConfig()
+
 	support.NewConfigBuilder(t).
 		MinLevel(enum.LevelDebug).
 		Build()
@@ -38,8 +44,6 @@ func Test_Integration_ChannelBuffersAndBlocks(t *testing.T) {
 	entered := make(chan struct{})
 	spy := &slowPreProcSignal{hook: slow, entered: entered}
 	config.InitPreProcessors(spy)
-
-	const bufSize = 10 // matches config.ch buffer (make(chan LogEvent, 10))
 	payload := []byte(`{"level":"info","msg":"x"}`)
 
 	// Trigger ProcessLogEvent to pick up and block on the first event.

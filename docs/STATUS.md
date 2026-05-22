@@ -1,6 +1,6 @@
 # LogNugget — Live Status Dashboard
 
-> **Last updated:** 2026-05-18
+> **Last updated:** 2026-05-21
 > **v1.0.0:** Released ✅ — [tag v1.0.0](https://github.com/architagr/LogNugget/releases/tag/v1.0.0) · [PR #80](https://github.com/architagr/LogNugget/pull/80) (merged)
 > **Umbrella:** [#12](https://github.com/architagr/LogNugget/issues/12)
 
@@ -198,6 +198,19 @@ idempotent `Shutdown()`, zero-config `init()`, race-clean under `-race`, SC8 fan
 
 ---
 
+## Critical Path to v1.0.0
+
+![Critical Path](assets/critical-path.svg)
+
+```text
+[A ✅][B ✅] → [C ✅] → [D ✅] → [029 ✅][030 ✅][031 ✅] → [032 🚀] → v1.0.0 PR #80
+```
+
+**All stories complete.** Release PR [#80](https://github.com/architagr/LogNugget/pull/80) is open for review.
+SLO miss (hot-path 2× over 1 µs) does NOT block v1.0.0 per project decision — tracked post-release.
+
+---
+
 ## Epic V2 — Performance: close the 31× throughput gap vs zerolog
 
 > **Umbrella:** [#81](https://github.com/architagr/LogNugget/issues/81)
@@ -205,12 +218,16 @@ idempotent `Shutdown()`, zero-config `init()`, race-clean under `-race`, SC8 fan
 
 ### The gap
 
-| Metric | zerolog (parallel) | LogNugget (parallel) | Gap |
-| ------ | ------------------ | -------------------- | --- |
-| ns/op | ~110 | ~3,440 | 31× slower |
-| ops/sec | ~9.09 M | ~290 K | 31× fewer |
-| allocs/op | 0 | 55 | ∞ |
-| B/op | 0 | 2,909 | ∞ |
+| Metric | zerolog (parallel) | LogNugget pre-V2 | LogNugget after P1 | Target (P1–P5) | Gap (pre-V2) |
+| ------ | ------------------ | ---------------- | ------------------ | -------------- | ------------ |
+| ns/op | ~110 | ~3,440 | ~1,130 | < 1,000 | 31× slower |
+| ops/sec | ~9.09 M | ~290 K | ~885 K | > 1 M | 31× fewer |
+| allocs/op | 0 | 55 | ~32 | ~0 | ∞ |
+| B/op | 0 | 2,909 | ~1,400 | ~0 | ∞ |
+
+> P1 measured on `BenchmarkLognugget_Parallel_10CtxFields` (GOMAXPROCS=8). P2 removes ~30 interface-boxing allocs;
+> P3 eliminates ~600 ns / ~23 allocs from `map[string]any` context iteration; P5 eliminates channel backpressure.
+> P4 (inline encoder framing) removes 2 allocs from double-buffer `en.Append`. Combined target: < 1,000 ns/op, ≤ 5 allocs.
 
 ### Root causes (ranked by impact)
 
@@ -227,10 +244,10 @@ idempotent `Shutdown()`, zero-config `init()`, race-clean under `-race`, SC8 fan
 | # | Issue | Story | Status |
 |---|-------|-------|--------|
 | P1 | [#82](https://github.com/architagr/LogNugget/issues/82) | Atomic minLevel + single config snapshot per call | ✅ DONE (PR [#94](https://github.com/architagr/LogNugget/pull/94)) |
-| P2 | [#83](https://github.com/architagr/LogNugget/issues/83) | Typed field API — Str/Int/Bool/Float64 on LogEntry | 🔍 IN REVIEW (PR [#95](https://github.com/architagr/LogNugget/pull/95)) |
-| P3 | [#84](https://github.com/architagr/LogNugget/issues/84) | Append-to-buf context API — eliminate map[string]any | 📋 PLANNED |
+| P2 | [#83](https://github.com/architagr/LogNugget/issues/83) | Typed field API — Str/Int/Bool/Float64 on LogEntry | ✅ MERGED (PR [#95](https://github.com/architagr/LogNugget/pull/95)) |
+| P3 | [#84](https://github.com/architagr/LogNugget/issues/84) | Append-to-buf context API — eliminate map[string]any | ✅ MERGED (PR [#96](https://github.com/architagr/LogNugget/pull/96)) |
 | P4 | [#85](https://github.com/architagr/LogNugget/issues/85) | Inline framing — eliminate en.Append double-buffer | 📋 PLANNED |
-| P5 | [#86](https://github.com/architagr/LogNugget/issues/86) | Channel capacity ≥ 1000 + configurable | 📋 PLANNED |
+| P5 | [#86](https://github.com/architagr/LogNugget/issues/86) | Channel capacity ≥ 1000 + configurable | 🔄 DRAFT PR [#97](https://github.com/architagr/LogNugget/pull/97) |
 
 ### Where LogNugget wins today
 
@@ -254,19 +271,6 @@ idempotent `Shutdown()`, zero-config `init()`, race-clean under `-race`, SC8 fan
 | OS3 | [#90](https://github.com/architagr/LogNugget/issues/90) | golangci-lint config + GitHub Actions CI | 📋 PLANNED |
 | OS4 | [#91](https://github.com/architagr/LogNugget/issues/91) | godoc audit — all exported symbols documented | 📋 PLANNED |
 | OS5 | [#92](https://github.com/architagr/LogNugget/issues/92) | API stability contract + CHANGELOG | 📋 PLANNED |
-
----
-
-## Critical Path to v1.0.0
-
-![Critical Path](assets/critical-path.svg)
-
-```
-[A ✅][B ✅] → [C ✅] → [D ✅] → [029 ✅][030 ✅][031 ✅] → [032 🚀] → v1.0.0 PR #80
-```
-
-**All stories complete.** Release PR [#80](https://github.com/architagr/LogNugget/pull/80) is open for review.
-SLO miss (hot-path 2× over 1 µs) does NOT block v1.0.0 per project decision — tracked post-release.
 
 ---
 
