@@ -11,11 +11,15 @@
 # Env:
 #   BENCH_THRESHOLD_NS   override the per-benchmark hard ceiling (ns/op). Default 1000.
 #   BENCH_PACKAGES       override the package selector. Default './...'.
+#   BENCH_EXCLUDE_RE     awk-style regex of benchmark names exempt from the hard ceiling.
+#                        These still run and appear in the benchstat regression check.
+#                        Default: AddSourceTrue (source capture calls runtime.Callers — inherently > 1 µs).
 
 set -euo pipefail
 
 THRESHOLD_NS="${BENCH_THRESHOLD_NS:-1000}"
 PACKAGES="${BENCH_PACKAGES:-./...}"
+EXCLUDE_RE="${BENCH_EXCLUDE_RE:-AddSourceTrue}"
 BASELINE_FILE="bench-baseline.txt"
 NEW_FILE="$(mktemp -t bench-new.XXXXXX)"
 trap 'rm -f "$NEW_FILE"' EXIT
@@ -38,14 +42,15 @@ if [ "${1:-}" = "--update-baseline" ]; then
   exit 0
 fi
 
-echo "bench-check: running benchmarks (threshold ${THRESHOLD_NS} ns/op = $(echo "scale=3; $THRESHOLD_NS/1000" | bc) µs)"
+echo "bench-check: running benchmarks (threshold ${THRESHOLD_NS} ns/op = $(echo "scale=3; $THRESHOLD_NS/1000" | bc) µs; excluding ceiling for: ${EXCLUDE_RE:-none})"
 go test -bench=. -benchmem -count=10 -run='^$' "$PACKAGES" | tee "$NEW_FILE"
 
-# Latency hard ceiling check.
-violations="$(awk -v thr="$THRESHOLD_NS" '
+# Latency hard ceiling check (excluded benchmarks still run; only exempt from the ceiling).
+violations="$(awk -v thr="$THRESHOLD_NS" -v excl="$EXCLUDE_RE" '
   /^Benchmark/ {
     name=$1
     nsop=$3 + 0
+    if (excl != "" && name ~ excl) next
     if (nsop > thr) {
       printf "  %s = %.0f ns/op (threshold %d)\n", name, nsop, thr
     }
