@@ -93,10 +93,35 @@ var hotSnapshotPtr atomic.Pointer[HotSnapshot]
 // creates a new ring) so callers of PublishLog always observe a valid ring.
 var atomicRing atomic.Pointer[mpscRingBuffer]
 
-// ringDoneCh is closed by resetConfig to signal the current ProcessLogEvent
-// goroutine to stop spinning and exit. A new channel is allocated for each
-// new ring epoch. Protected by configMu.Lock when replaced.
-var ringDoneCh chan struct{}
+// atomicProcsSlice holds a snapshot of the registered pre-processors as an
+// immutable slice so that dispatchEvent can iterate without acquiring configMu.
+//
+// why: the former dispatchEvent copied the EventPreProcessors map header under
+// RLock but iterated outside the lock, causing a DATA RACE when AddPreProcessors
+// or RemovePreProcessor mutated the same map concurrently (issue #131). Using an
+// atomic pointer to an immutable []preProcessingObserverContract eliminates the
+// race: writers rebuild the whole slice inside configMu.Lock and store a new
+// pointer; dispatchEvent loads the pointer once and iterates its own snapshot.
+var atomicProcsSlice atomic.Pointer[[]preProcessingObserverContract]
+
+// drainSignal is sent on ringDoneCh to tell the current ProcessLogEvent goroutine
+// to drain and exit. It carries the pre-processor snapshot that was active at the
+// moment resetConfig replaced the epoch — decoupling the drain goroutine's dispatch
+// from the new epoch's (empty) atomicProcsSlice.
+//
+// why: resetConfig must clear atomicProcsSlice for the new epoch before starting
+// the new goroutine, but the draining goroutine still needs the OLD pre-processors.
+// Embedding the snapshot in the signal gives each goroutine its own stable reference
+// without global shared-state races (issue #131 drain-race fix).
+type drainSignal struct {
+	procs *[]preProcessingObserverContract
+}
+
+// ringDoneCh is sent-to by resetConfig to signal the current ProcessLogEvent
+// goroutine to drain and exit. The channel is buffered (cap 1) so the send in
+// resetConfig never blocks even if the goroutine hasn't been scheduled yet.
+// A new channel is allocated for each new ring epoch. Protected by configMu.Lock.
+var ringDoneCh chan drainSignal
 
 // Compile-time width guard: enum.LogLevel must fit in int64 so the atomic
 // store is lossless. If LogLevel ever widens beyond int64 this line will
@@ -310,6 +335,7 @@ func InitPreProcessors(observers ...preProcessingObserverContract) {
 	// why: store inside the lock so HasEventPreProcessors sees a consistent value
 	// with respect to every other configMu writer (V3-P1 / LLD §3.1).
 	hasPreProcessorsAtomic.Store(len(EventPreProcessors) > 0)
+	rebuildProcsSlice()
 }
 
 // AddPreProcessors registers one or more pre-processors into the global
@@ -323,6 +349,7 @@ func AddPreProcessors(observers ...preProcessingObserverContract) {
 	// why: store inside the lock so HasEventPreProcessors sees a consistent value
 	// with respect to every other configMu writer (V3-P1 / LLD §3.1).
 	hasPreProcessorsAtomic.Store(len(EventPreProcessors) > 0)
+	rebuildProcsSlice()
 }
 
 // HasEventPreProcessors reports whether at least one pre-processor is
@@ -347,6 +374,18 @@ func RemovePreProcessor(name string) {
 	// why: store inside the lock so HasEventPreProcessors sees a consistent value
 	// with respect to every other configMu writer (V3-P1 / LLD §3.1).
 	hasPreProcessorsAtomic.Store(len(EventPreProcessors) > 0)
+	rebuildProcsSlice()
+}
+
+// rebuildProcsSlice copies EventPreProcessors into a fresh immutable slice and
+// atomically publishes it so dispatchEvent never races with map mutations.
+// Must be called inside configMu.Lock.
+func rebuildProcsSlice() {
+	procs := make([]preProcessingObserverContract, 0, len(EventPreProcessors))
+	for _, p := range EventPreProcessors {
+		procs = append(procs, p)
+	}
+	atomicProcsSlice.Store(&procs)
 }
 
 // SetMinLevel sets the minimum log level for the logger. It stores the level
@@ -705,29 +744,33 @@ func GetConfig() *Config {
 }
 
 // ProcessLogEvent pops events from the MPSC ring buffer and forwards each to
-// every registered PreProcessor. It runs until ringDoneCh is closed (by the
-// next resetConfig call). On an empty ring it yields the goroutine with
-// runtime.Gosched rather than blocking, then rechecks the done signal. When
-// done is signalled the remaining ring items are drained before returning.
+// every registered PreProcessor. It runs until done is signalled (by the next
+// resetConfig call). On an empty ring it yields with runtime.Gosched and
+// rechecks the done signal. When done is signalled the remaining ring items
+// are drained before returning.
+//
+// ring and done are passed by the caller (resetConfig) while the config lock
+// is held, guaranteeing that this goroutine always uses the ring and channel
+// that correspond to its own epoch — regardless of how long the Go scheduler
+// delays its first execution (issue #131 / drain-race fix).
 //
 // why (V3-P9): replacing the channel range with a lock-free ring Pop removes
 // the channel mutex from the consumer hot path, completing the V3 sub-500 ns
 // target.
-func ProcessLogEvent() {
-	configMu.RLock()
-	currentRing := atomicRing.Load()
-	done := ringDoneCh
-	configMu.RUnlock()
+func ProcessLogEvent(currentRing *mpscRingBuffer, done chan drainSignal) {
 
 	for {
 		e, ok := currentRing.Pop()
 		if !ok {
 			select {
-			case <-done:
-				// Drain any events written between the last Pop and the done signal.
+			case sig := <-done:
+				// Drain any events written between the last Pop and the drain signal.
+				// Use sig.procs (the pre-processor snapshot from the epoch being
+				// replaced) so drain dispatches to the correct processors even after
+				// resetConfig has cleared atomicProcsSlice for the new epoch.
 				for currentRing.Len() > 0 {
 					if ev, ok2 := currentRing.Pop(); ok2 {
-						dispatchEvent(ev)
+						dispatchTo(ev, sig.procs)
 					}
 				}
 				return
@@ -736,16 +779,38 @@ func ProcessLogEvent() {
 				continue
 			}
 		}
-		dispatchEvent(e)
+		// Check drain signal before dispatching the popped event. If the signal
+		// is already in the channel (resetConfig ran while we were in Pop), switch
+		// to drain mode immediately so this event and all remaining ones are
+		// delivered to sig.procs rather than the cleared atomicProcsSlice.
+		select {
+		case sig := <-done:
+			dispatchTo(e, sig.procs)
+			for currentRing.Len() > 0 {
+				if ev, ok2 := currentRing.Pop(); ok2 {
+					dispatchTo(ev, sig.procs)
+				}
+			}
+			return
+		default:
+			dispatchEvent(e)
+		}
 	}
 }
 
-// dispatchEvent forwards e to every registered PreProcessor under a short RLock.
+// dispatchEvent forwards e to every registered PreProcessor using the current
+// atomicProcsSlice snapshot — no lock acquired (issue #131 race fix).
 func dispatchEvent(e LogEvent) {
-	configMu.RLock()
-	processors := EventPreProcessors
-	configMu.RUnlock()
-	for _, observer := range processors {
+	dispatchTo(e, atomicProcsSlice.Load())
+}
+
+// dispatchTo forwards e to every PreProcessor in procs. procs is an immutable
+// snapshot owned by the caller; nil is treated as empty.
+func dispatchTo(e LogEvent, procs *[]preProcessingObserverContract) {
+	if procs == nil {
+		return
+	}
+	for _, observer := range *procs {
 		observer.PreProcess(e.Level, e.Data)
 	}
 }
@@ -767,7 +832,7 @@ func resetConfig() {
 	// Build the new ring buffer, done channel, and config before acquiring the
 	// lock to minimise lock-hold time — encoder factory can take allocations.
 	newRing := newMpscRingBuffer()
-	newDoneCh := make(chan struct{})
+	newDoneCh := make(chan drainSignal, 1)
 	encoderObj := encoder.DefaultEncoderFactory(enum.EncoderJSON)
 	newCfg := &Config{
 		minLevel:           DafaultLevel,
@@ -835,7 +900,10 @@ func resetConfig() {
 	// is not yet visible to any other goroutine at this point.
 	newCfg.defaultFieldsRendered = buildRenderedFields(newCfg.defaultFields)
 
-	var oldDoneCh chan struct{}
+	var (
+		oldDoneCh chan drainSignal
+		oldProcs  *[]preProcessingObserverContract
+	)
 	configMu.Lock()
 	// why: atomicRing must be stored inside configMu.Lock so that any concurrent
 	// PublishLog that loads atomicRing always sees a ring from the current epoch.
@@ -844,6 +912,12 @@ func resetConfig() {
 	atomicRing.Store(newRing)
 	oldDoneCh = ringDoneCh
 	ringDoneCh = newDoneCh
+	// why: newRing and newDoneCh are captured here (inside the lock) and passed
+	// directly to ProcessLogEvent below. If the goroutine were to read ringDoneCh
+	// after the lock is released, a subsequent resetConfig call on another
+	// goroutine could replace ringDoneCh before ProcessLogEvent is scheduled,
+	// causing the new goroutine to capture the wrong epoch's channel and never
+	// receive its drain signal (issue #131 / drain-race fix).
 	defaultConfig = newCfg
 	EventPreProcessors = make(map[string]preProcessingObserverContract)
 	// why: mirror the reset into the atomic so HasEventPreProcessors immediately
@@ -851,6 +925,12 @@ func resetConfig() {
 	// Without this store, the atomic would retain a stale true from a previous
 	// InitPreProcessors call across test resets (V3-P1 / LLD §3.1).
 	hasPreProcessorsAtomic.Store(false)
+	// why: capture the old proc snapshot BEFORE rebuildProcsSlice clears it.
+	// The drain goroutine receives this snapshot via drainSignal so it can
+	// dispatch remaining ring events to the OLD pre-processors even after the
+	// new epoch's empty slice is stored (issue #131 drain-race fix).
+	oldProcs = atomicProcsSlice.Load()
+	rebuildProcsSlice()
 	// why: restrictedFieldsSet must be rebuilt here so that
 	// ValidateandParseLogField works correctly from the very first call —
 	// even before any SetDefaultFields call is made. This is the fix for D-8:
@@ -871,13 +951,14 @@ func resetConfig() {
 	storeHotSnapshot()
 	configMu.Unlock()
 
-	// Close the old ringDoneCh (outside the lock) to signal the previous
-	// ProcessLogEvent goroutine to drain and exit. nil on the very first call
-	// from init (before any goroutine has started).
+	// Send the drain signal to the previous ProcessLogEvent goroutine (outside
+	// the lock). The channel is buffered (cap 1) so this never blocks even if
+	// the goroutine hasn't been scheduled yet. nil on the very first call from
+	// init (before any goroutine has started).
 	if oldDoneCh != nil {
-		close(oldDoneCh)
+		oldDoneCh <- drainSignal{procs: oldProcs}
 	}
-	go ProcessLogEvent()
+	go ProcessLogEvent(newRing, newDoneCh)
 }
 
 // MinLevel returns the minimum log level. Safe for concurrent use.

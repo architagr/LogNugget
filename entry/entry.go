@@ -39,6 +39,12 @@ type LogEntry struct {
 // real-world structured log lines without reallocation on the hot path.
 const initBufCap = 1024
 
+// p8SeveranceCapHook, when non-nil, is called with the newCap value computed
+// by the P8 exact-size buffer severance code. Always nil in production; set
+// by white-box tests to verify buffer sizing without depending on sync.Pool
+// slot identity (which is non-deterministic under -race / multi-P execution).
+var p8SeveranceCapHook func(int)
+
 // pendingBufCap is the initial capacity of LogEntry.pendingBuf. 256 B covers
 // the typical chain-method field set (10 typed fields) without reallocation.
 const pendingBufCap = 256
@@ -248,6 +254,9 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 		newCap = 64
 	}
 	e.buf = make([]byte, 0, newCap)
+	if p8SeveranceCapHook != nil {
+		p8SeveranceCapHook(newCap)
+	}
 	config.PublishLog(level, data)
 	e.Put()
 }
