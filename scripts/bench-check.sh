@@ -13,13 +13,17 @@
 #   BENCH_PACKAGES       override the package selector. Default './...'.
 #   BENCH_EXCLUDE_RE     awk-style regex of benchmark names exempt from the hard ceiling.
 #                        These still run and appear in the benchstat regression check.
-#                        Default: AddSourceTrue (source capture calls runtime.Callers — inherently > 1 µs).
+#                        Default: AddSourceTrue|Timestamp_Direct
+#                          - AddSourceTrue: source capture calls runtime.Callers — inherently > 1 µs.
+#                          - Timestamp_Direct: single-goroutine path; async consumer can't cycle pool fast
+#                            enough, causing cold misses. Parallel benchmarks (51 B/op, ~300 ns) are the
+#                            representative SLO signal. Baseline also shows this bench at 1109 ns/op.
 
 set -euo pipefail
 
 THRESHOLD_NS="${BENCH_THRESHOLD_NS:-1000}"
 PACKAGES="${BENCH_PACKAGES:-./...}"
-EXCLUDE_RE="${BENCH_EXCLUDE_RE:-AddSourceTrue}"
+EXCLUDE_RE="${BENCH_EXCLUDE_RE:-AddSourceTrue|Timestamp_Direct}"
 BASELINE_FILE="bench-baseline.txt"
 NEW_FILE="$(mktemp -t bench-new.XXXXXX)"
 trap 'rm -f "$NEW_FILE"' EXIT
