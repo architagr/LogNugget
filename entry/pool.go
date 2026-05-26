@@ -1,6 +1,10 @@
 package entry
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/architagr/lognugget/config"
+)
 
 // entryPool is the package-level sync.Pool backing NewLogEntry and Put.
 // The New func is set in init so the pool always returns a fully initialised
@@ -15,14 +19,16 @@ func init() {
 	}
 }
 
-// initLogEntry allocates a new *LogEntry with buf pre-grown to initBufCap.
+// initLogEntry allocates a new *LogEntry with 1 heap allocation.
+// buf comes from dispatchBufPool (0 extra allocs when pool is warm);
+// pendingBuf is backed by the inline pendingBufSlab — no separate alloc (V4-P3).
 // It is called exclusively by the pool's New func and by GenerateInitialPool;
 // callers outside the pool lifecycle must use NewLogEntry instead.
 func initLogEntry() *LogEntry {
-	return &LogEntry{
-		buf:        make([]byte, 0, initBufCap),
-		pendingBuf: make([]byte, 0, pendingBufCap),
-	}
+	e := &LogEntry{}
+	e.buf = config.GetDispatchBuf()
+	e.pendingBuf = e.pendingBufSlab[:0]
+	return e
 }
 
 // GenerateInitialPool pre-warms the internal sync.Pool with n ready-to-use
