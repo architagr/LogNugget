@@ -12,6 +12,10 @@ type AttrKind uint8
 const (
 	// KindAny is the zero value; used by struct-literal LogAttr{Key:k, Value:v}
 	// for backward compatibility. AppendAttr falls back to interface{} dispatch.
+	//
+	// Deprecated: use typed constructors (model.Str, model.Int, model.Bool,
+	// model.Float64, model.Uint) or the entry.Any chain method. KindAny boxes
+	// the value as interface{}, causing at least one heap allocation per field.
 	KindAny AttrKind = 0
 	// KindStr signals that StrVal() holds the field's string value.
 	KindStr AttrKind = 1
