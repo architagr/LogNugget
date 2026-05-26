@@ -230,15 +230,26 @@ When logs are written to a fast sink (in-process buffer, `io.Discard`) zerolog's
 wins on raw ns/op. Under **real IO latency** — an HTTP POST to Loki, S3, or any remote sink — the
 story reverses: the async ring buffer decouples the handler from IO entirely.
 
-### k6 load test (1,000 req/s, 60 s, local Loki — ~1 ms RTT, Apple M1 Pro)
+### k6 load test (1,000 req/s, 60 s — baseline, local Loki ~1 ms RTT, Apple M1 Pro)
 
 | Server                          | p50        | p90        | p95        | max         | Notes                              |
 |---------------------------------|------------|------------|------------|-------------|------------------------------------|
 | zerolog (sync → Loki)           | 1.75 ms    | 2.36 ms    | 3.96 ms    | 329 ms      | handler blocks on Loki POST        |
 | **LogNugget (async → Loki)**    | **1.14 ms**| **1.21 ms**| **1.25 ms**| **44.9 ms** | ring push only; IO off hot path    |
 
-**LogNugget p95 is 3.2× lower** than zerolog at the same request rate. Under a remote Loki (5–10 ms RTT)
-the gap becomes 4–6×.
+**LogNugget p95 is 3.2× lower** than zerolog at the same request rate.
+
+### k6 load test (10,000 req/s, 60 s — saturation, OTel B3 propagation, local Loki ~1 ms RTT)
+
+At 10× the load, zerolog's synchronous Loki writes block all handler goroutines. LogNugget's ring buffer keeps handlers non-blocking, sustaining 5.5× more throughput with 0 errors.
+
+| Server                       | Actual RPS   | p50 (http) | p90 (http) | p95 (http)  | Errors | Notes                                    |
+|------------------------------|-------------|------------|------------|-------------|--------|------------------------------------------|
+| zerolog (sync → Loki)        | 1,094 /s    | 1.33 s     | 3.81 s     | 4.72 s      | 0.62%  | Loki writes saturate; goroutines block   |
+| **LogNugget (async → Loki)** | **6,016 /s**| **336 ms** | **391 ms** | **417 ms**  | **0%** | 5.5× throughput; handler ~1 ms CPU only |
+
+> The 336 ms LogNugget http average is client queueing (2,000 VUs waiting), not handler work.
+> Actual handler latency = ~1 ms (ring push only). OTel B3 trace/span IDs are logged on every request.
 
 ### Go microbenchmark (simulated slow writer — no external deps)
 

@@ -1,15 +1,18 @@
 // zerolog-server is the benchmark HTTP server using zerolog → Loki.
 // It exposes GET /api/v1/work which simulates 1 ms of CPU work, logs one
-// structured event per request, and serves on :8080.
+// structured event per request (with OTel trace/span IDs via B3 propagation),
+// and serves on :8080.
 //
-// Run: go run ./examples/loki-bench/cmd/zerolog-server
+// Run: go run ./cmd/zerolog-server
 // Env: LOKI_URL (default http://localhost:3100)
 package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"os"
@@ -18,9 +21,20 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/contrib/propagators/b3"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
+const tracerName = "zerolog-server"
+
 func main() {
+	// OTel: no-op exporter — spans carry real IDs but are not shipped anywhere.
+	// B3 multi-header propagator handles X-B3-TraceId / X-B3-SpanId / X-B3-Sampled.
+	shutdown := initOTel()
+	defer shutdown()
+
 	lokiURL := envOr("LOKI_URL", "http://localhost:3100")
 	writer := newLokiWriter(lokiURL, "zerolog-server")
 
@@ -43,22 +57,40 @@ func main() {
 	}
 }
 
+func initOTel() func() {
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	)
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(b3.New(b3.WithInjectEncoding(b3.B3MultipleHeader)))
+	return func() { tp.Shutdown(context.Background()) } //nolint:errcheck
+}
+
 func workHandler(log zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Extract B3 trace context from incoming headers; create child span.
+		// otel.Tracer resolves global provider at call time — after initOTel.
+		ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+		ctx, span := otel.Tracer(tracerName).Start(ctx, "handle-work")
+		defer span.End()
+		_ = ctx
+
 		start := time.Now()
 		doWork()
 		lat := time.Since(start)
 
-		traceID := newTraceID()
+		sc := span.SpanContext()
 		log.Info().
 			Str("method", r.Method).
 			Str("path", r.URL.Path).
 			Int("status", 200).
 			Int64("latency_us", lat.Microseconds()).
-			Str("trace_id", traceID).
+			Str("trace_id", sc.TraceID().String()).
+			Str("span_id", sc.SpanID().String()).
 			Msg("request")
 
-		w.Header().Set("X-Trace-Id", traceID)
+		w.Header().Set("X-B3-TraceId", sc.TraceID().String())
+		w.Header().Set("X-B3-SpanId", sc.SpanID().String())
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, `{"status":"ok","latency_us":%d}`, lat.Microseconds())
 	}
@@ -87,19 +119,15 @@ func envOr(key, def string) string {
 	return def
 }
 
-// lokiWriter is a synchronous io.Writer that POSTs each log line to Loki's
-// push API (/loki/api/v1/push) as a single stream entry.
-// This gives zerolog the same IO cost as LogNugget's async push.
+// lokiWriter is a synchronous io.Writer that POSTs each log line to Loki.
 type lokiWriter struct {
 	url    string
-	labels string
 	client *http.Client
 }
 
 func newLokiWriter(lokiBase, app string) *lokiWriter {
 	return &lokiWriter{
 		url:    lokiBase + "/loki/api/v1/push",
-		labels: fmt.Sprintf(`{app="%s",logger="zerolog"}`, app),
 		client: &http.Client{Timeout: 5 * time.Second},
 	}
 }
@@ -129,6 +157,9 @@ func (w *lokiWriter) Write(p []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 	resp.Body.Close()
 	return len(p), nil
 }
+
+var _ = newTraceID // suppress unused warning — kept for test helpers
