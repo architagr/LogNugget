@@ -21,18 +21,21 @@ type LogEntry struct {
 	// caller is the call-site frame appended to the log line when cfg.addSource
 	// is true. Populated lazily inside logWithSkip via runtime.Caller(skip).
 	caller *runtime.Frame
-	// buf is the reusable byte accumulator for the rendered log body.
-	// It is pre-grown to initBufCap at construction and reset to len=0 (not
-	// nil) on each pool cycle so that the backing array survives across reuses.
-	// why: eliminates the make([]byte, 0, 256) allocation on every Log call
-	// (D-6 / F27). initBufCap = 1 KB covers the vast majority of log lines.
+	// buf is the reusable byte accumulator for the rendered log body. On every
+	// log call it receives a buffer from config.dispatchBufPool (zero alloc when
+	// warm) so that the backing array survives across pool cycles without a
+	// per-call make(). V4-P2 owns the buf lifecycle; V4-P3 eliminates the
+	// separate pendingBuf allocation by inlining its backing storage.
 	buf []byte
 	// pendingBuf accumulates chain-method fields (Str/Int/Uint/Float64/Bool)
-	// before they are flushed into buf during logWithSkip. Each field is
-	// written as ",key":value so they can be appended verbatim.
-	// Pre-grown to pendingBufCap (256 B) at pool construction; capacity is
-	// retained across pool cycles to eliminate per-call allocations.
+	// before they are flushed into buf during logWithSkip. Its backing storage
+	// is the inline pendingBufSlab array — no separate heap allocation (V4-P3).
 	pendingBuf []byte
+	// pendingBufSlab is the inline backing array for pendingBuf. By embedding
+	// it in the struct, initLogEntry() allocates a single *LogEntry (1 alloc)
+	// instead of struct + buf + pendingBuf (3 allocs), reducing the cold pool
+	// miss cost to match zerolog's 1-alloc pool entry (V4-P3 / refs #134).
+	pendingBufSlab [pendingBufCap]byte
 }
 
 // initBufCap is the initial capacity of LogEntry.buf. 1 KB covers ~80% of
@@ -65,10 +68,11 @@ func NewLogEntry() *LogEntry {
 // in reset_test.go is updated to allow this exception.
 func (e *LogEntry) reset() {
 	retained := e.buf[:0]
-	retainedPending := e.pendingBuf[:0]
 	*e = LogEntry{}
 	e.buf = retained
-	e.pendingBuf = retainedPending
+	// Re-slice pendingBuf from the inline slab — zero alloc. The slab is part
+	// of the struct and survives the zero-value assignment above (V4-P3).
+	e.pendingBuf = e.pendingBufSlab[:0]
 }
 
 // Put returns e to the internal sync.Pool. It is called automatically by Log
