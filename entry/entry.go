@@ -328,3 +328,21 @@ func (e *LogEntry) Bool(key string, val bool) *LogEntry {
 	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Bool(key, val))
 	return e
 }
+
+// Err appends the error message as an "error" string field. No-op when err is nil.
+func (e *LogEntry) Err(err error) *LogEntry {
+	if err == nil {
+		return e
+	}
+	e.pendingBuf = append(e.pendingBuf, ',')
+	e.pendingBuf = config.AppendAttr(e.pendingBuf, "error", model.Str("error", err.Error()))
+	return e
+}
+
+// Any appends val as a JSON field using interface{} boxing. Prefer typed chain
+// methods (Str, Int, Bool, Float64, Uint) on the hot path to avoid allocations.
+func (e *LogEntry) Any(key string, val any) *LogEntry {
+	e.pendingBuf = append(e.pendingBuf, ',')
+	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.LogAttr{Key: model.LogAttrKey(key), Value: val})
+	return e
+}
