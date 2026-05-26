@@ -29,3 +29,4 @@ CLAUDE.md
 */coverage.txt
 .claude
 graphify-out/
+examples/loki-bench/bin/

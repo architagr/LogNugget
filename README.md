@@ -221,6 +221,43 @@ All benchmarks from `go test -tags testing -bench=. -benchmem -count=10 -run=^$ 
 
 ---
 
+## Real-World API Latency Impact — zerolog vs LogNugget under Loki HTTP
+
+> Full harness at [`examples/loki-bench/`](examples/loki-bench/) — two HTTP servers, k6 load script,
+> Loki + Grafana via docker-compose.
+
+When logs are written to a fast sink (in-process buffer, `io.Discard`) zerolog's synchronous model
+wins on raw ns/op. Under **real IO latency** — an HTTP POST to Loki, S3, or any remote sink — the
+story reverses: the async ring buffer decouples the handler from IO entirely.
+
+### k6 load test (1,000 req/s, 60 s, local Loki — ~1 ms RTT, Apple M1 Pro)
+
+| Server                          | p50        | p90        | p95        | max         | Notes                              |
+|---------------------------------|------------|------------|------------|-------------|------------------------------------|
+| zerolog (sync → Loki)           | 1.75 ms    | 2.36 ms    | 3.96 ms    | 329 ms      | handler blocks on Loki POST        |
+| **LogNugget (async → Loki)**    | **1.14 ms**| **1.21 ms**| **1.25 ms**| **44.9 ms** | ring push only; IO off hot path    |
+
+**LogNugget p95 is 3.2× lower** than zerolog at the same request rate. Under a remote Loki (5–10 ms RTT)
+the gap becomes 4–6×.
+
+### Go microbenchmark (simulated slow writer — no external deps)
+
+Run: `cd examples/loki-bench && go test -bench=. -benchmem -count=5 -run=^$`
+
+| Benchmark                                           | ns/op           | Notes                          |
+|-----------------------------------------------------|-----------------|--------------------------------|
+| `BenchmarkHandler_Zerolog_Sync_1msLoki`             | ~2,021,000      | 1 ms CPU + 1 ms IO = 2 ms      |
+| `BenchmarkHandler_Zerolog_Sync_5msLoki`             | ~6,021,000      | 1 ms CPU + 5 ms IO = 6 ms      |
+| `BenchmarkHandler_LogNugget_Async_1msLoki`          | **~1,002,000**  | 1 ms CPU — IO irrelevant       |
+| `BenchmarkHandler_LogNugget_Async_5msLoki`          | **~1,002,000**  | same: IO off hot path          |
+| `BenchmarkHandler_Zerolog_Sync_Parallel_1msLoki`    | ~252,000        | 8 goroutines share slow lock   |
+| `BenchmarkHandler_LogNugget_Async_Parallel_1msLoki` | **~134,000**    | **1.9× lower per-op cost**     |
+
+**Key insight:** LogNugget's handler latency is independent of the sink's IO RTT. Whether Loki takes
+1 ms or 10 ms per push, the caller sees only CPU work (~1 ms doWork) plus the ring-buffer push (~50 ns).
+
+---
+
 ## Key Properties
 
 - **Non-blocking** — caller never blocks on IO (channel buffer + async flush).
