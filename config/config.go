@@ -771,6 +771,7 @@ func ProcessLogEvent(currentRing *mpscRingBuffer, done chan drainSignal) {
 				for currentRing.Len() > 0 {
 					if ev, ok2 := currentRing.Pop(); ok2 {
 						dispatchTo(ev, sig.procs)
+						ReturnDispatchBuf(ev.Data)
 					}
 				}
 				return
@@ -786,9 +787,11 @@ func ProcessLogEvent(currentRing *mpscRingBuffer, done chan drainSignal) {
 		select {
 		case sig := <-done:
 			dispatchTo(e, sig.procs)
+			ReturnDispatchBuf(e.Data)
 			for currentRing.Len() > 0 {
 				if ev, ok2 := currentRing.Pop(); ok2 {
 					dispatchTo(ev, sig.procs)
+					ReturnDispatchBuf(ev.Data)
 				}
 			}
 			return
@@ -799,9 +802,10 @@ func ProcessLogEvent(currentRing *mpscRingBuffer, done chan drainSignal) {
 }
 
 // dispatchEvent forwards e to every registered PreProcessor using the current
-// atomicProcsSlice snapshot — no lock acquired (issue #131 race fix).
+// atomicProcsSlice snapshot, then returns e.Data to dispatchBufPool (V4-P2).
 func dispatchEvent(e LogEvent) {
 	dispatchTo(e, atomicProcsSlice.Load())
+	ReturnDispatchBuf(e.Data)
 }
 
 // dispatchTo forwards e to every PreProcessor in procs. procs is an immutable

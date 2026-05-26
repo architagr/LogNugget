@@ -1,8 +1,8 @@
-// Package entry_test: V3-P8 exact-size buffer severance benchmark.
+// Package entry_test: V4-P2 dispatch buffer pool benchmark.
 //
-// Measures B/op before and after changing the post-publish buffer reset from
-// make([]byte, 0, initBufCap) (1024 B) to make([]byte, 0, max(64, len(data))).
-// Target: B/op drops by ≥ 800 B relative to the initBufCap baseline.
+// Measures B/op after replacing the post-publish make([]byte, 0, newCap) with
+// a pool.Get from dispatchBufPool. Target: B/op = 0 on the hot path (warm pool,
+// no make() per call); previously ~121 B/op from the P8 make([]byte, 0, newCap).
 package entry_test
 
 import (
@@ -26,7 +26,7 @@ func (w *bufferSizeBenchWriter) Write(p []byte) (int, error) { return len(p), ni
 //
 // Input shape: single-goroutine, no context fields, JSON encoder, Debug level,
 // typical short structured message (~60–80 B rendered).
-// Budget defended: B/op must be ≤ 200 B (≥ 800 B saving vs 1024-byte baseline);
+// Budget defended: B/op must be ≤ 64 B (pool.Get amortised to 0 on warm path);
 // overall ns/op must remain < 1000 (sub-1 µs SLO per CLAUDE.md §Performance Gate).
 func BenchmarkBufferSeverance(b *testing.B) {
 	b.StopTimer()

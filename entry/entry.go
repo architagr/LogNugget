@@ -39,12 +39,6 @@ type LogEntry struct {
 // real-world structured log lines without reallocation on the hot path.
 const initBufCap = 1024
 
-// p8SeveranceCapHook, when non-nil, is called with the newCap value computed
-// by the P8 exact-size buffer severance code. Always nil in production; set
-// by white-box tests to verify buffer sizing without depending on sync.Pool
-// slot identity (which is non-deterministic under -race / multi-P execution).
-var p8SeveranceCapHook func(int)
-
 // pendingBufCap is the initial capacity of LogEntry.pendingBuf. 256 B covers
 // the typical chain-method field set (10 typed fields) without reallocation.
 const pendingBufCap = 256
@@ -240,23 +234,17 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 	}
 
 	// why: append closing bytes (e.g. `}\n` for JSON) directly into e.buf —
-	// no intermediate allocation. Then transfer ownership of e.buf to the
-	// channel by severing the pool alias: replace e.buf with a fresh
-	// make([]byte, 0, initBufCap) so that reset() in e.Put() retains this
-	// new backing array (not the one handed to PublishLog). ProcessLogEvent
-	// reads Data asynchronously; after the transfer the pool goroutine and the
-	// consumer goroutine each own separate backing arrays — no data race.
-	// Eliminates 2 allocs per call vs pre-P4 (en.Append + dataCopy). P4.
+	// Sever the pool alias: swap e.buf with a pooled replacement so that the
+	// LogEntry returned to entryPool and the slice dispatched to the ring own
+	// separate backing arrays — no data race. The replacement comes from
+	// dispatchBufPool (zero alloc when warm) instead of make(), eliminating
+	// the per-call heap allocation from P4/P8 (V4-P2 / refs #133).
+	// ReturnDispatchBuf is called by dispatchEvent after all pre-processors
+	// have read data, completing the buffer lifecycle without any make() on the
+	// hot path.
 	e.buf = append(e.buf, snap.EncoderClose...)
 	data := e.buf
-	newCap := len(data)
-	if newCap < 64 {
-		newCap = 64
-	}
-	e.buf = make([]byte, 0, newCap)
-	if p8SeveranceCapHook != nil {
-		p8SeveranceCapHook(newCap)
-	}
+	e.buf = config.GetDispatchBuf()
 	config.PublishLog(level, data)
 	e.Put()
 }
