@@ -634,9 +634,15 @@ func SetContextFieldsParser(parser ContextFieldsParser) {
 // SetContextFieldsAppender sets the zero-alloc context field writer.
 // When set, it takes precedence over any ContextFieldsParser on the hot path.
 // The appender receives the entry buffer and must append ,key:value fragments
-// for each context field, returning the extended buffer. storeHotSnapshot is
-// called inside the lock so the atomic snapshot immediately reflects the new
-// ContextAppender (V3-P2 / LLD §4.1). Safe for concurrent use.
+// for each context field, returning the extended buffer.
+//
+// Prefer SetContextFields for most use cases — it accepts typed field methods
+// (Str, Int, Bool, Float64, Uint) and handles JSON encoding internally, so
+// callers do not need to manage raw JSON bytes. Use SetContextFieldsAppender
+// only when you need direct []byte control (custom encoding, binary fields).
+//
+// storeHotSnapshot is called inside the lock so the atomic snapshot immediately
+// reflects the new ContextAppender (V3-P2 / LLD §4.1). Safe for concurrent use.
 func SetContextFieldsAppender(appender ContextFieldsAppender) {
 	configMu.Lock()
 	defer configMu.Unlock()

@@ -46,18 +46,13 @@ func main() {
 	config.SetEncoderType(enum.EncoderJSON)
 	config.SetOutput(writer)
 
-	// Zero-alloc OTel context appender — reads trace/span IDs from the OTel
-	// span stored in ctx. Called on the hot path; pre-rendered bytes, no boxing.
-	config.SetContextFieldsAppender(func(ctx context.Context, dst []byte) []byte {
+	// OTel context fields — reads trace/span IDs from the active span.
+	config.SetContextFields(func(ctx context.Context, f *config.CtxFields) {
 		sc := trace.SpanFromContext(ctx).SpanContext()
 		if sc.IsValid() {
-			dst = append(dst, `,"trace_id":"`...)
-			dst = append(dst, sc.TraceID().String()...)
-			dst = append(dst, `","span_id":"`...)
-			dst = append(dst, sc.SpanID().String()...)
-			dst = append(dst, '"')
+			f.Str("trace_id", sc.TraceID().String())
+			f.Str("span_id", sc.SpanID().String())
 		}
-		return dst
 	})
 
 	proc := pipelineStage.NewUnsetLogEventPostProcessor(2*time.Second, 4096, writer)

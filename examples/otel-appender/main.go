@@ -1,6 +1,6 @@
 // Package main demonstrates integrating LogNugget with OpenTelemetry by
-// registering a ContextFieldsAppender that injects trace_id and span_id into
-// every log line from an active span — zero allocations on the hot path.
+// registering a SetContextFields callback that injects trace_id and span_id
+// into every log line from an active span.
 package main
 
 import (
@@ -21,19 +21,15 @@ func main() {
 	config.SetMinLevel(enum.LevelDebug)
 	config.SetEncoderType(enum.EncoderJSON)
 
-	// Register the OTel appender — zero allocations when a span is active.
-	config.SetContextFieldsAppender(func(ctx context.Context, dst []byte) []byte {
+	// Register OTel context fields — LogNugget handles JSON encoding internally.
+	config.SetContextFields(func(ctx context.Context, f *config.CtxFields) {
 		span := trace.SpanFromContext(ctx)
 		if !span.IsRecording() {
-			return dst
+			return
 		}
 		sc := span.SpanContext()
-		dst = append(dst, `,"trace_id":"`...)
-		dst = append(dst, sc.TraceID().String()...)
-		dst = append(dst, `","span_id":"`...)
-		dst = append(dst, sc.SpanID().String()...)
-		dst = append(dst, '"')
-		return dst
+		f.Str("trace_id", sc.TraceID().String())
+		f.Str("span_id", sc.SpanID().String())
 	})
 
 	out := &stdoutWriter{}

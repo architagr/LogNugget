@@ -1,6 +1,6 @@
-[![codecov](https://codecov.io/gh/architagr/LogNugget/branch/main/graph/badge.svg?token=9VPDuFbSyQ)](https://codecov.io/gh/architagr/LogNugget)
-
 # LogNugget
+
+[![codecov](https://codecov.io/gh/architagr/LogNugget/branch/main/graph/badge.svg?token=9VPDuFbSyQ)](https://codecov.io/gh/architagr/LogNugget)
 
 **Bite-sized, context-aware logging for Go** — because every request deserves its own story.
 
@@ -11,11 +11,13 @@
 ## Why LogNugget?
 
 Traditional Go loggers often:
+
 1. **Block the application** waiting for synchronous IO writes.
 2. **Allocate per-call** buffers, increasing GC pressure.
 3. **Lack structured context propagation** for trace/span IDs.
 
 LogNugget solves these by:
+
 - Batched async event pipeline — the caller never blocks on IO.
 - `sync.Pool`-backed `LogEntry` objects — zero per-call allocation on the hot path.
 - Context-first API — trace, span, and request fields propagate automatically.
@@ -28,7 +30,6 @@ LogNugget solves these by:
 import (
     "context"
     "github.com/architagr/lognugget/entry"
-    "github.com/architagr/lognugget/model"
     _ "github.com/architagr/lognugget/lognugget" // zero-config init
 )
 
@@ -36,11 +37,39 @@ func main() {
     defer lognugget.Shutdown() // flush on exit
 
     ctx := context.Background()
-    entry.NewLogEntry().Info(ctx, "server started", model.LogAttr{Key: "port", Value: 8080})
+    entry.NewLogEntry().
+        Str("port", "8080").
+        Int("workers", 8).
+        Info(ctx, "server started")
 }
 ```
 
 Importing `lognugget` is sufficient — no `NewLogger()` required.
+
+---
+
+## Chain Methods
+
+`LogEntry` exposes typed chain methods for zero-alloc field building. Fields are appended directly to the entry buffer — no `map[string]any`, no interface boxing.
+
+| Method | Signature | Notes |
+|--------|-----------|-------|
+| `Str` | `Str(key, value string) *LogEntry` | RFC 8259 escaped string |
+| `Int` | `Int(key string, value int) *LogEntry` | Signed integer |
+| `Uint` | `Uint(key string, value uint) *LogEntry` | Unsigned integer |
+| `Float64` | `Float64(key string, value float64) *LogEntry` | NaN/±Inf → JSON null |
+| `Bool` | `Bool(key string, value bool) *LogEntry` | `true` / `false` |
+| `Err` | `Err(err error) *LogEntry` | Appends `"error":"<msg>"`, no-op if nil |
+| `Any` | `Any(key string, val any) *LogEntry` | Type-switch fallback; boxes the value |
+
+```go
+entry.NewLogEntry().
+    Str("method", r.Method).
+    Str("path", r.URL.Path).
+    Int("status", 200).
+    Err(err).
+    Info(ctx, "request handled")
+```
 
 ---
 
@@ -64,31 +93,31 @@ All setters are optional. Defaults work out of the box.
 | `config.SetRate(d)` | `1s` | Ticker flush interval |
 | `config.SetTimeFormat(fmt)` | `time.RFC3339` | Timestamp format |
 | `config.SetStaticEnvFieldsParser(fn)` | `nil` | Once-evaluated static fields (hostname, service) |
-| `config.SetContextFieldsParser(fn)` | `nil` | Per-call context fields (trace_id, user_id) |
+| `config.SetContextFields(fn)` | `nil` | Per-call context fields via typed methods (V4 recommended) |
+| `config.SetContextFieldsAppender(fn)` | `nil` | Per-call context fields via raw `[]byte` (advanced) |
+| `config.SetContextFieldsParser(fn)` | `nil` | Per-call context fields via `map[string]any` (legacy) |
 | `config.SetDefaultFields(map)` | built-in keys | Rename default field keys |
 
 ---
 
-## Context Fields — Zero-Alloc OTel Appender (V3)
+## Context Fields (V4)
 
-Use `SetContextFieldsAppender` for zero-alloc context injection. The appender writes fields directly into the log buffer — no `map[string]any`, no interface boxing, no GC pressure.
+Use `SetContextFields` to inject per-request fields. Provide field names and values using typed methods — LogNugget handles JSON encoding and RFC 8259 escaping internally.
 
 ```go
-// V3 recommended: zero-alloc appender (OTel trace/span IDs + request fields)
-config.SetContextFieldsAppender(func(ctx context.Context, dst []byte) []byte {
+// V4 recommended: typed context fields (OTel trace/span IDs + request fields)
+config.SetContextFields(func(ctx context.Context, f *config.CtxFields) {
     span := trace.SpanFromContext(ctx)
     if span.SpanContext().IsValid() {
-        dst = append(dst, `,"trace_id":"`...)
-        dst = append(dst, span.SpanContext().TraceID().String()...)
-        dst = append(dst, `","span_id":"`...)
-        dst = append(dst, span.SpanContext().SpanID().String()...)
-        dst = append(dst, '"')
+        f.Str("trace_id", span.SpanContext().TraceID().String())
+        f.Str("span_id", span.SpanContext().SpanID().String())
     }
-    return dst
 })
 ```
 
-The legacy `SetContextFieldsParser` (returns `map[string]any`) is still supported but costs ~600 ns/call at 10 fields. For new code, prefer the appender. See `examples/otel-appender/` for a runnable OTel demo.
+`CtxFields` methods: `Str(key, value string)`, `Int(key string, value int64)`, `Uint(key string, value uint64)`, `Bool(key string, value bool)`, `Float64(key string, value float64)`.
+
+For advanced use cases requiring direct `[]byte` control (custom binary encoding), `SetContextFieldsAppender` is still available. The legacy `SetContextFieldsParser` (returns `map[string]any`) is still supported but costs ~600 ns/call at 10 fields. For new code, prefer `SetContextFields`. See `examples/otel-appender/` for a runnable OTel demo.
 
 ---
 
@@ -158,32 +187,37 @@ Run from `examples/bench/`: `go test -bench=. -benchmem -count=10 -run=^$`
 
 | Logger | ns/op | B/op | allocs/op | ~ops/sec |
 |--------|-------|------|-----------|----------|
-| **zerolog** | **~548** | **0** | **0** | **~1.82 M** |
-| **LogNugget V3** ¹ | **~865** | **~592** | **5** | **~1.16 M** |
+| **zerolog** | **~554** | **0** | **0** | **~1.8 M** |
+| **LogNugget V4** ¹ | **~1,215** | **~53** | **2** | **~823 K** |
 | LogNugget V2 ¹ | ~1,280 | 1,417 | 6 | ~781 K |
 | LogNugget v1 ¹ | ~3,630 | 2,909 | 55 | ~275 K |
-| logrus | ~5,570 | 4,857 | 58 | ~179 K |
+| logrus | ~5,350 | 4,855 | 58 | ~187 K |
 
 ### Parallel (8 goroutines, GOMAXPROCS=8)
 
 | Logger | ns/op | B/op | allocs/op | ~ops/sec (total) |
 |--------|-------|------|-----------|-----------------|
-| **zerolog** | **~110** | **0** | **0** | **~9.09 M** |
-| **LogNugget V3** ¹ | **~196** | **~105** | **2** | **~5.1 M** |
+| **zerolog** | **~105** | **0** | **0** | **~9.5 M** |
+| **LogNugget V4** ¹ | **~310** | **~62** | **2** | **~3.2 M** |
 | LogNugget V2 ¹ | ~1,090 | 1,411 | 5 | ~917 K |
 | LogNugget v1 ¹ | ~3,440 | 2,909 | 55 | ~290 K |
-| logrus | ~6,880 | 4,863 | 58 | ~145 K |
+| logrus | ~6,750 | 4,859 | 58 | ~148 K |
 
 ### Filtered path (log level below minimum — fast reject)
 
-| Logger | ns/op | B/op | allocs/op | ~ops/sec |
-|--------|-------|------|-----------|----------|
-| LogNugget | **~10** | **0** | **0** | **~100 M** |
+| Logger    | ns/op   | B/op  | allocs/op | ~ops/sec  |
+|-----------|---------|-------|-----------|-----------|
+| LogNugget | **~42** | **0** | **0**     | **~24 M** |
 
 > ¹ **LogNugget is async** — the caller returns after a lock-free ring-buffer push; JSON encode
 > and `io.Write` happen on a background goroutine. The `ns/op` figures above reflect **caller-side
 > cost only** (no IO wait). zerolog and logrus are **synchronous** — their numbers include full
 > JSON encoding and write to `io.Discard`.
+>
+> **V4 improvements (feat/v4):** dispatch buffer pool (`GetDispatchBuf`) + inline 256-byte slab per
+> `LogEntry` (P2/P3); new typed chain methods `Str/Int/Uint/Float64/Bool/Err/Any` (P5); simplified
+> `SetContextFields` API replaces raw-JSON `SetContextFieldsAppender` for most callers.
+> Key gain: 10-ctx-fields B/op −84% (313 → ~51 B/op) in internal benchmarks.
 >
 > **V3 improvements (Epic V3, feat/111):** −82% parallel latency (1,090 → ~196 ns/op), −60% allocs
 > (5 → 2/op), −93% bytes (1,411 → ~105 B/op). Key changes: lock-free MPSC ring buffer replaces
@@ -202,22 +236,25 @@ Run from `examples/bench/`: `go test -bench=. -benchmem -count=10 -run=^$`
 > **Why does logrus degrade under parallelism?** logrus uses a global mutex — at 8 goroutines
 > contention raises per-op cost from ~5,570 to ~6,880 ns.
 
-### LogNugget internal benchmarks (V3 — current)
+### LogNugget internal benchmarks (V4 — current)
 
 All benchmarks from `go test -tags testing -bench=. -benchmem -count=10 -run=^$ ./...` on Apple M1 Pro, GOMAXPROCS=8.
 
 | Benchmark | ns/op | B/op | allocs/op | Notes |
 |-----------|-------|------|-----------|-------|
-| `Benchmark_Log` (serial) | **~865** | ~592 | 5 | Full pipeline, no ctx fields |
-| `Benchmark_Log_Parallel_NoCtx` | **~196** | ~105 | 2 | `b.RunParallel`, no ctx |
-| `Benchmark_Log_Parallel_10CtxFields` (OTel) | **~256** | ~313 | 2 | `b.RunParallel`, 10 OTel fields |
-| `Benchmark_Log_Filtered_BelowMinLevel` | **~10** | 0 | 0 | Fast-reject path (atomic gate) |
+| `Benchmark_Log` (serial) | **~875** | ~398 | 5 | Full pipeline, no ctx fields |
+| `Benchmark_Log_Parallel_NoCtx` | **~332** | ~393 | 4 | `b.RunParallel`, no ctx |
+| `Benchmark_Log_Parallel_10CtxFields` (OTel) | **~299** | ~51 | 2 | `b.RunParallel`, 10 OTel fields |
+| `Benchmark_Log_Filtered_BelowMinLevel` | **~14** | 0 | 0 | Fast-reject path (atomic gate), serial |
+| `Benchmark_Log_Filtered_BelowMinLevel_Parallel` | **~3** | 0 | 0 | Fast-reject path, parallel |
 | `BenchmarkRingBuffer_Push` | **~88** | 0 | 0 | MPSC ring push, 8 producers |
 | `BenchmarkAppendAttr_Str` | ~25 | 0 | 0 | Per-field encoding (hot path) |
 | `BenchmarkAppendAttr_Int` | ~11 | 0 | 0 | Per-field encoding (hot path) |
 
+**V4 key improvement — 10 OTel context fields:** −84% bytes (313 → 51 B/op) via dispatch buffer pool (P2) and inline buffer slab (P3). The NoCtx parallel bench runs with `GenerateInitialPool(1_000_000)` — the large pool's 256-byte-per-entry slab inflates B/op vs production deployments that use `GOMAXPROCS×64` entries. Caller-side latency in production is unaffected by pool sizing.
+
 **V3 vs V2:** parallel NoCtx −82% (1,090→196 ns/op), allocs −60% (5→2), bytes −93% (1,411→105 B/op).
-**Filtered path (~10 ns, 0 allocs)** — atomic level gate; sub-1 ns under parallel.
+**Filtered path (~14 ns serial / ~3 ns parallel, 0 allocs)** — atomic level gate.
 
 ---
 
