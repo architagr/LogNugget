@@ -181,9 +181,12 @@ type HotSnapshot struct {
 	StaticFields string
 	// ContextParser is the legacy context-field extractor (nil if unset).
 	ContextParser ContextFieldsParser
-	// ContextAppender is the high-performance context-field writer (nil if unset).
-	// P3 will set this; P1 carries the field so the struct is forward-compatible.
+	// ContextAppender is the raw-bytes context-field writer (nil if unset).
+	// Takes precedence over ContextFunc on the hot path.
 	ContextAppender ContextFieldsAppender
+	// ContextFunc is the typed context-field writer (nil if unset).
+	// Used when ContextAppender is nil; writes via *CtxFields, no separate pool.
+	ContextFunc ContextFieldsFunc
 	// Encoder is the active log encoder (JSON or text).
 	Encoder encoder.Encoder
 	// EncoderType is the discriminator for the active encoder.
@@ -228,6 +231,7 @@ func storeHotSnapshot() {
 		StaticFields:     defaultConfig.parsedStaticFields,
 		ContextParser:    defaultConfig.contextParser,
 		ContextAppender:  defaultConfig.contextAppender,
+		ContextFunc:      defaultConfig.contextFunc,
 		Encoder:          defaultConfig.encoderObj,
 		EncoderType:      defaultConfig.encoderType,
 		RestrictedFields: restrictedFieldsSet,
@@ -288,7 +292,8 @@ type Config struct {
 	rate                  time.Duration                 // Rate to push logs to output
 	parsedStaticFields    string                        // this is the satic fields
 	contextParser         ContextFieldsParser           // Function to extract context fields
-	contextAppender       ContextFieldsAppender         // High-performance context-field writer (P3)
+	contextAppender       ContextFieldsAppender         // Raw-bytes context-field writer; takes precedence over contextFunc
+	contextFunc           ContextFieldsFunc             // Typed context-field writer; used when contextAppender is nil
 	defaultFields         map[enum.DefaultLogKey]string // Default fields to log with every entry
 	defaultFieldsRendered map[enum.DefaultLogKey][]byte // pre-rendered `"key":` prefix bytes; populated by buildRenderedFields
 	timeFormat            string                        // Time format for log entries

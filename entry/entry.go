@@ -36,11 +36,11 @@ type LogEntry struct {
 	// instead of struct + buf + pendingBuf (3 allocs), reducing the cold pool
 	// miss cost to match zerolog's 1-alloc pool entry (V4-P3 / refs #134).
 	pendingBufSlab [pendingBufCap]byte
+	// ctxFields is the pre-allocated CtxFields passed to config.ContextFieldsFunc.
+	// Embedding it here eliminates the separate sync.Pool Get/Put that a standalone
+	// CtxFields pool would require on the hot path (V4-P6 / refs #135).
+	ctxFields config.CtxFields
 }
-
-// initBufCap is the initial capacity of LogEntry.buf. 1 KB covers ~80% of
-// real-world structured log lines without reallocation on the hot path.
-const initBufCap = 1024
 
 // pendingBufCap is the initial capacity of LogEntry.pendingBuf. 256 B covers
 // the typical chain-method field set (10 typed fields) without reallocation.
@@ -217,10 +217,9 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 		e.pendingBuf = e.pendingBuf[:0]
 	}
 
-	// Context fields — AppendContextFields dispatches to the zero-alloc
-	// ContextAppender when registered, or falls back to the legacy parser path.
-	// Both paths use snap.RestrictedFields so no extra configMu lock is needed.
-	e.buf = config.AppendContextFields(ctx, e.buf, snap)
+	// Context fields — AppendContextFields dispatches to ContextAppender,
+	// ContextFunc (via &e.ctxFields — no extra alloc), or legacy parser.
+	e.buf = config.AppendContextFields(ctx, e.buf, snap, &e.ctxFields)
 
 	if err != nil {
 		e.buf = append(e.buf, ',')

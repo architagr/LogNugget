@@ -386,20 +386,27 @@ func ValidateAndAppendField(dst []byte, key string, value any, restrictedSet map
 }
 
 // AppendContextFields writes per-request context fields to dst and returns the
-// extended slice. When a ContextFieldsAppender is registered it is called
-// directly (zero intermediate allocations). Otherwise the legacy
-// ContextFieldsParser path is used (allocates a map, but acquires no extra
-// configMu locks — restricted-key checks use snap.RestrictedFields).
+// extended slice. Priority: ContextAppender > ContextFunc > ContextParser.
 //
-// If ctx is nil both paths are skipped and dst is returned unchanged.
-func AppendContextFields(ctx context.Context, dst []byte, snap HotSnapshot) []byte {
+// ContextAppender: raw []byte writer, zero allocations, power-user path.
+// ContextFunc: typed *CtxFields writer; cf must be the caller's pre-allocated
+// CtxFields (e.g. embedded in LogEntry) — no separate pool Get/Put needed.
+// ContextParser: legacy map[string]any path; allocates per call.
+//
+// If ctx is nil all paths are skipped and dst is returned unchanged.
+func AppendContextFields(ctx context.Context, dst []byte, snap HotSnapshot, cf *CtxFields) []byte {
 	if ctx == nil {
 		return dst
 	}
 	if snap.ContextAppender != nil {
 		// why: appender writes directly into dst — zero map/slice allocations.
-		// Parser is intentionally NOT called when appender is registered (P3 AC-1).
 		return snap.ContextAppender(ctx, dst)
+	}
+	if snap.ContextFunc != nil && cf != nil {
+		// why: cf is owned by the pooled LogEntry — no extra allocation.
+		cf.buf = dst
+		snap.ContextFunc(ctx, cf)
+		return cf.buf
 	}
 	if snap.ContextParser != nil {
 		for key, value := range snap.ContextParser(ctx) {

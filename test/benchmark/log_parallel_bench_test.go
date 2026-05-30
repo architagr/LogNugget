@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func Benchmark_Log_Parallel(b *testing.B) {
 	defer proc.Stop()
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, proc)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
-	entry.GenerateInitialPool(1_000_000)
+	entry.GenerateInitialPool(runtime.GOMAXPROCS(0) * 64)
 
 	ctx := context.WithValue(
 		context.WithValue(context.Background(), ctxKeyRequestID, "req-bench"),
@@ -55,7 +56,7 @@ func Benchmark_Log_Parallel_NoCtx(b *testing.B) {
 	defer proc.Stop()
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, proc)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
-	entry.GenerateInitialPool(1_000_000)
+	entry.GenerateInitialPool(runtime.GOMAXPROCS(0) * 64)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -84,7 +85,7 @@ func Benchmark_Log_Parallel_10CtxFields(b *testing.B) {
 	defer proc.Stop()
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, proc)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
-	entry.GenerateInitialPool(1_000_000)
+	entry.GenerateInitialPool(runtime.GOMAXPROCS(0) * 64)
 
 	ctx := context.Background()
 	b.ReportAllocs()

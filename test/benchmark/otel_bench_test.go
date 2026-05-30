@@ -4,6 +4,7 @@ package benchmark
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -35,7 +36,7 @@ func Benchmark_Log_Parallel_OtelCtx(b *testing.B) {
 	defer proc.Stop()
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, proc)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
-	entry.GenerateInitialPool(1_000_000)
+	entry.GenerateInitialPool(runtime.GOMAXPROCS(0) * 64)
 
 	ctx := context.Background()
 	b.ReportAllocs()

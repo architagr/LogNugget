@@ -187,27 +187,27 @@ Run from `examples/bench/`: `go test -bench=. -benchmem -count=10 -run=^$`
 
 | Logger | ns/op | B/op | allocs/op | ~ops/sec |
 |--------|-------|------|-----------|----------|
-| **zerolog** | **~554** | **0** | **0** | **~1.8 M** |
-| **LogNugget V4** ¹ | **~1,215** | **~53** | **2** | **~823 K** |
+| **zerolog** | **~572** | **0** | **0** | **~1.7 M** |
+| **LogNugget V4** ¹ | **~1,200** | **~53** | **2** | **~833 K** |
 | LogNugget V2 ¹ | ~1,280 | 1,417 | 6 | ~781 K |
 | LogNugget v1 ¹ | ~3,630 | 2,909 | 55 | ~275 K |
-| logrus | ~5,350 | 4,855 | 58 | ~187 K |
+| logrus | ~5,900 | 4,855 | 58 | ~169 K |
 
 ### Parallel (8 goroutines, GOMAXPROCS=8)
 
 | Logger | ns/op | B/op | allocs/op | ~ops/sec (total) |
 |--------|-------|------|-----------|-----------------|
-| **zerolog** | **~105** | **0** | **0** | **~9.5 M** |
-| **LogNugget V4** ¹ | **~310** | **~62** | **2** | **~3.2 M** |
+| **zerolog** | **~114** | **0** | **0** | **~8.8 M** |
+| **LogNugget V4** ¹ | **~365** | **~63** | **2** | **~2.7 M** |
 | LogNugget V2 ¹ | ~1,090 | 1,411 | 5 | ~917 K |
 | LogNugget v1 ¹ | ~3,440 | 2,909 | 55 | ~290 K |
-| logrus | ~6,750 | 4,859 | 58 | ~148 K |
+| logrus | ~7,050 | 4,860 | 58 | ~142 K |
 
 ### Filtered path (log level below minimum — fast reject)
 
 | Logger    | ns/op   | B/op  | allocs/op | ~ops/sec  |
 |-----------|---------|-------|-----------|-----------|
-| LogNugget | **~42** | **0** | **0**     | **~24 M** |
+| LogNugget | **~44** | **0** | **0**     | **~23 M** |
 
 > ¹ **LogNugget is async** — the caller returns after a lock-free ring-buffer push; JSON encode
 > and `io.Write` happen on a background goroutine. The `ns/op` figures above reflect **caller-side
@@ -216,8 +216,9 @@ Run from `examples/bench/`: `go test -bench=. -benchmem -count=10 -run=^$`
 >
 > **V4 improvements (feat/v4):** dispatch buffer pool (`GetDispatchBuf`) + inline 256-byte slab per
 > `LogEntry` (P2/P3); new typed chain methods `Str/Int/Uint/Float64/Bool/Err/Any` (P5); simplified
-> `SetContextFields` API replaces raw-JSON `SetContextFieldsAppender` for most callers.
-> Key gain: 10-ctx-fields B/op −84% (313 → ~51 B/op) in internal benchmarks.
+> `SetContextFields` API replaces raw-JSON `SetContextFieldsAppender` for most callers; `CtxFields`
+> embedded in pooled `LogEntry` eliminates separate pool Get/Put on the typed context-fields path.
+> Key gain: 10-ctx-fields B/op −83% (313 → ~52 B/op); parallel caller latency ~365 ns/op vs ~1,090 ns V2.
 >
 > **V3 improvements (Epic V3, feat/111):** −82% parallel latency (1,090 → ~196 ns/op), −60% allocs
 > (5 → 2/op), −93% bytes (1,411 → ~105 B/op). Key changes: lock-free MPSC ring buffer replaces
@@ -242,16 +243,16 @@ All benchmarks from `go test -tags testing -bench=. -benchmem -count=10 -run=^$ 
 
 | Benchmark | ns/op | B/op | allocs/op | Notes |
 |-----------|-------|------|-----------|-------|
-| `Benchmark_Log` (serial) | **~875** | ~398 | 5 | Full pipeline, no ctx fields |
-| `Benchmark_Log_Parallel_NoCtx` | **~332** | ~393 | 4 | `b.RunParallel`, no ctx |
-| `Benchmark_Log_Parallel_10CtxFields` (OTel) | **~299** | ~51 | 2 | `b.RunParallel`, 10 OTel fields |
+| `Benchmark_Log` (serial) | **~960** | ~400 | 5 | Full pipeline, no ctx fields |
+| `Benchmark_Log_Parallel_NoCtx` | **~355** | ~400 | 4 | `b.RunParallel`, no ctx |
+| `Benchmark_Log_Parallel_10CtxFields` (OTel) | **~295** | ~52 | 2 | `b.RunParallel`, 10 OTel fields |
 | `Benchmark_Log_Filtered_BelowMinLevel` | **~14** | 0 | 0 | Fast-reject path (atomic gate), serial |
 | `Benchmark_Log_Filtered_BelowMinLevel_Parallel` | **~3** | 0 | 0 | Fast-reject path, parallel |
 | `BenchmarkRingBuffer_Push` | **~88** | 0 | 0 | MPSC ring push, 8 producers |
 | `BenchmarkAppendAttr_Str` | ~25 | 0 | 0 | Per-field encoding (hot path) |
 | `BenchmarkAppendAttr_Int` | ~11 | 0 | 0 | Per-field encoding (hot path) |
 
-**V4 key improvement — 10 OTel context fields:** −84% bytes (313 → 51 B/op) via dispatch buffer pool (P2) and inline buffer slab (P3). The NoCtx parallel bench runs with `GenerateInitialPool(1_000_000)` — the large pool's 256-byte-per-entry slab inflates B/op vs production deployments that use `GOMAXPROCS×64` entries. Caller-side latency in production is unaffected by pool sizing.
+**V4 key improvement — 10 OTel context fields:** −83% bytes (313 → 52 B/op) via dispatch buffer pool (P2) and inline buffer slab (P3). Pool sized to `GOMAXPROCS×64` (production-realistic) — eliminates GC-pressure inflation seen with the prior 1M-entry pool.
 
 **V3 vs V2:** parallel NoCtx −82% (1,090→196 ns/op), allocs −60% (5→2), bytes −93% (1,411→105 B/op).
 **Filtered path (~14 ns serial / ~3 ns parallel, 0 allocs)** — atomic level gate.

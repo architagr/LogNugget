@@ -8,6 +8,7 @@ package benchmark
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -67,7 +68,7 @@ func Benchmark_Log(b *testing.B) {
 
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, unsetPostProcessor)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
-	entry.GenerateInitialPool(1_000_000)
+	entry.GenerateInitialPool(runtime.GOMAXPROCS(0) * 64)
 
 	ctxs := make([]context.Context, b.N)
 	for i := range ctxs {

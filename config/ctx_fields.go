@@ -4,7 +4,6 @@ import (
 	"context"
 	"math"
 	"strconv"
-	"sync"
 )
 
 // CtxFields is passed to a ContextFieldsFunc callback. Callers add per-request
@@ -17,7 +16,7 @@ type CtxFields struct {
 	buf []byte
 }
 
-// Str appends a JSON string field: ,"key":"value" (both key and value are RFC 8259 escaped).
+// Str appends a JSON string field: ,"key":"value" (both RFC 8259 escaped).
 func (f *CtxFields) Str(key, value string) {
 	f.buf = append(f.buf, ',')
 	f.buf = appendJSONStringStr(f.buf, key)
@@ -67,11 +66,10 @@ func (f *CtxFields) Float64(key string, value float64) {
 // JSON encoding. See SetContextFields for usage.
 type ContextFieldsFunc = func(ctx context.Context, f *CtxFields)
 
-var ctxFieldsPool = sync.Pool{New: func() any { return &CtxFields{} }}
-
 // SetContextFields registers a simplified per-request context field callback.
 // Use this instead of SetContextFieldsAppender — callers provide field names
 // and values using typed methods and LogNugget handles JSON encoding internally.
+// The *CtxFields is owned by the pooled LogEntry; no extra allocation occurs.
 //
 // Example (OTel trace/span IDs):
 //
@@ -85,17 +83,8 @@ var ctxFieldsPool = sync.Pool{New: func() any { return &CtxFields{} }}
 //
 // Passing nil clears any previously registered context field callback.
 func SetContextFields(fn ContextFieldsFunc) {
-	if fn == nil {
-		SetContextFieldsAppender(nil)
-		return
-	}
-	SetContextFieldsAppender(func(ctx context.Context, dst []byte) []byte {
-		f := ctxFieldsPool.Get().(*CtxFields)
-		f.buf = dst
-		fn(ctx, f)
-		dst = f.buf
-		f.buf = nil
-		ctxFieldsPool.Put(f)
-		return dst
-	})
+	configMu.Lock()
+	defer configMu.Unlock()
+	defaultConfig.contextFunc = fn
+	storeHotSnapshot()
 }

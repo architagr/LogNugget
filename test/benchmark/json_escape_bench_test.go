@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ func Benchmark_Log_JSONEscape_SafeASCII(b *testing.B) {
 	defer proc.Stop()
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, proc)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
-	entry.GenerateInitialPool(1_000_000)
+	entry.GenerateInitialPool(runtime.GOMAXPROCS(0) * 64)
 
 	ctx := context.Background()
 	field := model.LogAttr{Key: "url", Value: "/api/v1/users"}
@@ -45,7 +46,7 @@ func Benchmark_Log_JSONEscape_Unicode(b *testing.B) {
 	defer proc.Stop()
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, proc)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
-	entry.GenerateInitialPool(1_000_000)
+	entry.GenerateInitialPool(runtime.GOMAXPROCS(0) * 64)
 
 	ctx := context.Background()
 	field := model.LogAttr{Key: "user", Value: "日本語テスト "}
@@ -67,7 +68,7 @@ func Benchmark_Log_JSONEscape_ControlChars(b *testing.B) {
 	defer proc.Stop()
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, proc)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
-	entry.GenerateInitialPool(1_000_000)
+	entry.GenerateInitialPool(runtime.GOMAXPROCS(0) * 64)
 
 	ctx := context.Background()
 	field := model.LogAttr{Key: "body", Value: "line1\nline2\ttabbed\r\n"}
