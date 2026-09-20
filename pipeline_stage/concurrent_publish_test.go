@@ -1,6 +1,7 @@
 package pipelineStage
 
 import (
+	"bytes"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,17 +15,28 @@ import (
 // demonstrate that the concurrent-publish path needs no external
 // serialisation — each Write call is an independent atomic increment.
 type safeCountWriter struct {
-	calls atomic.Int64
+	calls   atomic.Int64
+	records atomic.Int64
 }
 
-// Write increments the call counter atomically and discards p.
+// Write counts both the call and the records inside it, then discards p.
+//
+// why records: one Write now carries a whole flush batch, so counting calls
+// no longer counts messages. Records are newline-delimited, as the encoder
+// produces them.
 func (w *safeCountWriter) Write(p []byte) (int, error) {
 	w.calls.Add(1)
+	w.records.Add(int64(bytes.Count(p, []byte{'\n'})))
 	return len(p), nil
 }
 
-// Count returns the total number of Write calls observed so far.
+// Count returns the number of records written so far.
 func (w *safeCountWriter) Count() int {
+	return int(w.records.Load())
+}
+
+// Writes returns the number of Write calls — one per flush batch.
+func (w *safeCountWriter) Writes() int {
 	return int(w.calls.Load())
 }
 
@@ -32,8 +44,7 @@ func (w *safeCountWriter) Count() int {
 // and verifies that every message is eventually delivered after Stop().
 //
 // 100 goroutines × 1 000 publishes = 100 000 messages. Each message
-// produces exactly 1 Write call (the record, which already carries its own
-// terminator), so the expected call count is 100 000. maxBucketSize is set high enough (110 000) so
+// must arrive exactly once, batched into far fewer Write calls. maxBucketSize is set high enough (110 000) so
 // that no capacity-triggered flush fires mid-test; all messages drain on
 // Stop(), which blocks until the final flush goroutine completes.
 //
@@ -42,9 +53,9 @@ func Test_Race_PostProcessorPublish(t *testing.T) {
 	const goroutines = 100
 	const msgsPerGoroutine = 1_000
 	const totalMessages = goroutines * msgsPerGoroutine
-	// why: one Write per record — the encoder terminates each record with
-	// "\n" (ARCH-14), so the post-processor must not add a separator of its own.
-	const expectedWrites = totalMessages
+	// why records, not Write calls: a flush writes its whole batch in one
+	// Write, so the assertion counts newline-delimited records instead.
+	const expectedRecords = totalMessages
 
 	out := &safeCountWriter{}
 	// why: 10-minute rate prevents ticker flushes from firing during the
@@ -58,7 +69,7 @@ func Test_Race_PostProcessorPublish(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < msgsPerGoroutine; i++ {
-				proc.PublishLogMessage([]byte("payload"))
+				proc.PublishLogMessage([]byte("payload\n"))
 			}
 		}()
 	}
@@ -69,8 +80,10 @@ func Test_Race_PostProcessorPublish(t *testing.T) {
 	// goroutines touching the processor.
 	proc.Stop()
 
-	assert.Equal(t, expectedWrites, out.Count(),
-		"100_000 messages × 1 Write call each must equal 100_000")
+	assert.Equal(t, expectedRecords, out.Count(),
+		"every published message must reach the writer exactly once")
+	assert.Less(t, out.Writes(), expectedRecords,
+		"batching must produce fewer Write calls than records")
 }
 
 // Test_Race_StopWhileLogging verifies that calling Stop() concurrently with

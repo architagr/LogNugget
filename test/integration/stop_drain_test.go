@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"bytes"
 	"sync"
 	"testing"
 	"time"
@@ -12,7 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// countingWriter records the number of Write calls, thread-safe.
+// countingWriter records the number of newline-delimited records written,
+// thread-safe. why not Write calls: one Write carries a whole flush batch.
 type countingWriter struct {
 	mu    sync.Mutex
 	count int
@@ -20,7 +22,7 @@ type countingWriter struct {
 
 func (w *countingWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
-	w.count++
+	w.count += bytes.Count(p, []byte{'\n'})
 	w.mu.Unlock()
 	return len(p), nil
 }
@@ -48,13 +50,12 @@ func Test_Integration_StopDrainsAllQueued(t *testing.T) {
 	proc := pipelineStage.NewUnsetLogEventPostProcessor(10*time.Minute, maxBucketSize, out)
 
 	for i := 0; i < total; i++ {
-		proc.PublishLogMessage([]byte("payload"))
+		proc.PublishLogMessage([]byte("payload\n"))
 	}
 
 	proc.Stop()
 
-	// One Write call per record: the encoder terminates each record with "\n",
-	// so the post-processor writes the record and nothing else.
+	// Records, not Write calls: a flush writes its whole batch in one Write.
 	assert.Equal(t, total, out.Count(), "Stop must drain all %d enqueued messages", total)
 }
 
@@ -63,7 +64,7 @@ func Test_Integration_StopDrainsAllQueued(t *testing.T) {
 func Test_Integration_StopIdempotent(t *testing.T) {
 	out := &countingWriter{}
 	proc := pipelineStage.NewUnsetLogEventPostProcessor(10*time.Minute, 10, out)
-	proc.PublishLogMessage([]byte("x"))
+	proc.PublishLogMessage([]byte("x\n"))
 
 	proc.Stop()
 

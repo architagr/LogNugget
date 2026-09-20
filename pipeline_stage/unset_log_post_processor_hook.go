@@ -36,6 +36,18 @@ func putArena(b []byte) {
 	arenaPool.Put(&b)
 }
 
+// logBatch is one flushed bucket: the arena holding the records back to back,
+// and the exclusive end offset of each record within it.
+type logBatch struct {
+	arena []byte
+	ends  []int
+}
+
+// flushQueueDepth bounds how many flushed batches may wait for the writer.
+// Beyond this the flushing goroutine blocks, which is the intended
+// back-pressure: memory stays bounded when the sink cannot keep up.
+const flushQueueDepth = 64
+
 // unsetLogEventPostProcessor batches log messages and flushes them
 // either periodically or when the bucket reaches capacity.
 //
@@ -61,8 +73,21 @@ type unsetLogEventPostProcessor struct {
 	// without busy-waiting. D-11 / SC5.
 	doneCh   chan struct{}
 	stopOnce sync.Once
-	// flushWg tracks in-flight async flush goroutines started by flushLogMessages
-	// so that the stop-path drain can wait for them before closing doneCh.
+	// flushCh carries full batches to the single writer goroutine.
+	//
+	// why one writer: each flush used to start its own goroutine, so two
+	// batches could reach the output concurrently and land out of order —
+	// records written later appearing earlier in the file. A single consumer
+	// keeps output in publication order, and the bounded channel turns a slow
+	// sink into back-pressure on the flushing goroutine rather than an
+	// unbounded pile of goroutines.
+	flushCh chan logBatch
+	// writerStop tells the writer goroutine to exit. Closed by the stop path
+	// only after flushWg reports every queued batch written, so the writer
+	// never abandons pending work.
+	writerStop chan struct{}
+	// flushWg tracks batches queued but not yet written, so the stop path can
+	// wait for them before writing the final batch itself.
 	flushWg sync.WaitGroup
 	// stopping is set to true inside mu.Lock() when the stop path begins.
 	// PublishLogMessage and flushLogMessages check this flag (under mu) before
@@ -82,9 +107,32 @@ func NewUnsetLogEventPostProcessor(rate time.Duration, maxBufferSize int, output
 		ticker:        time.NewTicker(rate),
 		stopCh:        make(chan struct{}),
 		doneCh:        make(chan struct{}),
+		flushCh:       make(chan logBatch, flushQueueDepth),
+		writerStop:    make(chan struct{}),
 	}
 	go obj.activeBucketWatcher()
+	go obj.writeLoop()
 	return obj
+}
+
+// writeLoop is the single goroutine that touches the output, so records reach
+// it in the order they were published.
+func (h *unsetLogEventPostProcessor) writeLoop() {
+	for {
+		select {
+		case batch := <-h.flushCh:
+			h.printMessage(batch.arena, batch.ends)
+			h.flushWg.Done()
+		case <-h.writerStop:
+			return
+		}
+	}
+}
+
+// enqueue hands a batch to the writer goroutine. The caller must have called
+// flushWg.Add(1) under h.mu before invoking this.
+func (h *unsetLogEventPostProcessor) enqueue(arena []byte, ends []int) {
+	h.flushCh <- logBatch{arena: arena, ends: ends}
 }
 
 // activeBucketWatcher periodically flushes messages and handles shutdown.
@@ -107,11 +155,15 @@ func (h *unsetLogEventPostProcessor) activeBucketWatcher() {
 			arena, ends := h.swapBucket()
 			h.mu.Unlock()
 
-			// Wait for any async flushes that were in flight before stopCh fired.
+			// Wait for every batch already queued to be written.
 			// stopping=true ensures no new Add(1) calls can race with Wait().
 			h.flushWg.Wait()
-			// Write the final batch synchronously.
+			// Write the final batch here rather than queueing it, so it lands
+			// after the queued ones and before doneCh is closed.
 			h.printMessage(arena, ends)
+			// Safe now: flushWg is zero, so the writer has no pending work and
+			// stopping=true prevents any further enqueue.
+			close(h.writerStop)
 			close(h.doneCh)
 			return
 		}
@@ -144,28 +196,27 @@ func (h *unsetLogEventPostProcessor) flushLogMessages() {
 	h.flushWg.Add(1)
 	h.mu.Unlock()
 
-	go func() {
-		defer h.flushWg.Done()
-		h.printMessage(arena, ends)
-	}()
+	h.enqueue(arena, ends)
 }
 
-// printMessage writes the buffered records held in arena to the output, one
-// Write per record, then recycles the arena.
+// printMessage writes one flushed batch to the output in a single Write, then
+// recycles the arena.
 //
 // Each record already carries its own terminator: the encoder's CloseBytes
-// ends every line with "\n" (ARCH-14). why: this method used to write a
-// second newline after each record, so every emitted stream contained a blank
-// line between records — valid-but-noisy NDJSON that some collectors ingest
-// as empty entries.
+// ends every line with "\n" (ARCH-14), so the batch is newline-delimited
+// without any separator of this type's own. why one Write: batching exists to
+// keep the caller off the IO path, but writing record-by-record meant a bucket
+// of 500 still cost 500 writes — SetLogBufferMaxSize changed the flush
+// bookkeeping and nothing a sink could observe. One write per flush is what
+// makes the setting worth having.
 //
 // Write errors are intentionally ignored: log delivery is best-effort and
 // the caller has already released the bucket; there is nothing to retry.
 func (h *unsetLogEventPostProcessor) printMessage(arena []byte, ends []int) {
-	start := 0
-	for _, end := range ends {
-		_, _ = h.output.Write(arena[start:end])
-		start = end
+	if len(ends) > 0 {
+		// ends[len-1] is the end of the last record: everything before it is
+		// the batch, contiguous and already newline-delimited.
+		_, _ = h.output.Write(arena[:ends[len(ends)-1]])
 	}
 	putArena(arena)
 }
@@ -204,10 +255,7 @@ func (h *unsetLogEventPostProcessor) PublishLogMessage(entry []byte) {
 	h.mu.Unlock()
 
 	if ends != nil {
-		go func() {
-			defer h.flushWg.Done()
-			h.printMessage(toFlush, ends)
-		}()
+		h.enqueue(toFlush, ends)
 	}
 }
 

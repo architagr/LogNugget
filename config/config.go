@@ -638,7 +638,10 @@ func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
 			list = append(list, ValidateandParseLogField(key, value))
 		}
 		if len(list) > 0 {
-			parsed = strings.Join(list, ", ")
+			// why ",": the separator goes straight into the record, and a
+			// ", " here made static fields the only members rendered with a
+			// space after the comma.
+			parsed = strings.Join(list, ",")
 		}
 	}
 	configMu.Lock()

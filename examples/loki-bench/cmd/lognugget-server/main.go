@@ -167,11 +167,29 @@ type lokiStream struct {
 }
 
 func (w *lokiWriter) push(p []byte) (int, error) {
-	ts := strconv.FormatInt(time.Now().UnixNano(), 10)
+	// A write from the collector carries a whole flush batch: the records are
+	// concatenated and newline-delimited. Loki expects one value per record,
+	// so split the batch — and send the lot in a single push, which is the
+	// point of batching in the first place.
+	lines := bytes.Split(bytes.TrimRight(p, "\n"), []byte{'\n'})
+	values := make([][2]string, 0, len(lines))
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		values = append(values, [2]string{
+			strconv.FormatInt(time.Now().UnixNano(), 10),
+			string(line),
+		})
+	}
+	if len(values) == 0 {
+		return len(p), nil
+	}
+
 	payload := lokiPush{
 		Streams: []lokiStream{{
 			Stream: map[string]string{"app": w.app, "logger": "lognugget"},
-			Values: [][2]string{{ts, string(p)}},
+			Values: values,
 		}},
 	}
 	body, err := json.Marshal(payload)

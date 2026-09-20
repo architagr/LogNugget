@@ -28,7 +28,7 @@ func Test_PublishLogMessage_AtomicSwap_NoDoubleWrite(t *testing.T) {
 	for i := 0; i < publishers; i++ {
 		go func() {
 			defer wg.Done()
-			obj.PublishLogMessage([]byte("msg"))
+			obj.PublishLogMessage([]byte("msg\n"))
 		}()
 	}
 	wg.Wait()
@@ -55,7 +55,7 @@ func Test_PostProcessor_FlushOnSize(t *testing.T) {
 	defer obj.Stop()
 
 	for i := 0; i < maxBucket; i++ {
-		obj.PublishLogMessage([]byte("event"))
+		obj.PublishLogMessage([]byte("event\n"))
 	}
 
 	// One Write per record.
@@ -74,8 +74,8 @@ func Test_PostProcessor_FlushOnTicker(t *testing.T) {
 	obj := NewUnsetLogEventPostProcessor(50*time.Millisecond, 100, out)
 	defer obj.Stop()
 
-	obj.PublishLogMessage([]byte("tick-msg-1"))
-	obj.PublishLogMessage([]byte("tick-msg-2"))
+	obj.PublishLogMessage([]byte("tick-msg-1\n"))
+	obj.PublishLogMessage([]byte("tick-msg-2\n"))
 
 	// 2 messages, one Write each.
 	assert.Eventually(t, func() bool { return out.Count() == 2 },
@@ -118,7 +118,7 @@ func Test_PostProcessor_ConcurrentPublishers_NoOverflow(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < msgsPerGoroutine; j++ {
-				obj.PublishLogMessage([]byte("concurrent-msg"))
+				obj.PublishLogMessage([]byte("concurrent-msg\n"))
 			}
 		}()
 	}

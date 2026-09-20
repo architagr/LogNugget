@@ -291,6 +291,7 @@ func (e *LogEntry) Panic(ctx context.Context, err error, message string, fields 
 // chaining. The field is written as ,"key":"value" with RFC 8259 escaping.
 // Zero heap allocations when pendingBuf has sufficient capacity.
 func (e *LogEntry) Str(key, val string) *LogEntry {
+	key = config.SafeFieldKey(key)
 	e.pendingBuf = append(e.pendingBuf, ',')
 	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Str(key, val))
 	return e
@@ -299,6 +300,7 @@ func (e *LogEntry) Str(key, val string) *LogEntry {
 // Int appends an int64 field to the entry's pending buffer and returns e for
 // chaining. The value is written as an unquoted JSON integer.
 func (e *LogEntry) Int(key string, val int64) *LogEntry {
+	key = config.SafeFieldKey(key)
 	e.pendingBuf = append(e.pendingBuf, ',')
 	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Int(key, val))
 	return e
@@ -307,6 +309,7 @@ func (e *LogEntry) Int(key string, val int64) *LogEntry {
 // Uint appends a uint64 field to the entry's pending buffer and returns e for
 // chaining. The value is written as an unquoted JSON integer.
 func (e *LogEntry) Uint(key string, val uint64) *LogEntry {
+	key = config.SafeFieldKey(key)
 	e.pendingBuf = append(e.pendingBuf, ',')
 	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Uint(key, val))
 	return e
@@ -315,6 +318,7 @@ func (e *LogEntry) Uint(key string, val uint64) *LogEntry {
 // Float64 appends a float64 field to the entry's pending buffer and returns e
 // for chaining. NaN and ±Inf are rendered as JSON null.
 func (e *LogEntry) Float64(key string, val float64) *LogEntry {
+	key = config.SafeFieldKey(key)
 	e.pendingBuf = append(e.pendingBuf, ',')
 	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Float64(key, val))
 	return e
@@ -323,6 +327,7 @@ func (e *LogEntry) Float64(key string, val float64) *LogEntry {
 // Bool appends a bool field to the entry's pending buffer and returns e for
 // chaining. The value is written as an unquoted JSON boolean.
 func (e *LogEntry) Bool(key string, val bool) *LogEntry {
+	key = config.SafeFieldKey(key)
 	e.pendingBuf = append(e.pendingBuf, ',')
 	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Bool(key, val))
 	return e
@@ -341,6 +346,7 @@ func (e *LogEntry) Err(err error) *LogEntry {
 // Any appends val as a JSON field using interface{} boxing. Prefer typed chain
 // methods (Str, Int, Bool, Float64, Uint) on the hot path to avoid allocations.
 func (e *LogEntry) Any(key string, val any) *LogEntry {
+	key = config.SafeFieldKey(key)
 	e.pendingBuf = append(e.pendingBuf, ',')
 	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.LogAttr{Key: model.LogAttrKey(key), Value: val})
 	return e

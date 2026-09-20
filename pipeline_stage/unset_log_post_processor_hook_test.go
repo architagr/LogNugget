@@ -1,6 +1,7 @@
 package pipelineStage
 
 import (
+	"bytes"
 	"sync"
 	"testing"
 	"time"
@@ -11,20 +12,32 @@ import (
 // mockWriter is a thread-safe io.Writer that counts Write calls.
 // It is shared across test files in this package.
 type mockWriter struct {
-	mu     sync.Mutex
-	called int
+	mu      sync.Mutex
+	called  int
+	records int
 }
 
-// Write increments the call counter and satisfies io.Writer.
+// Write counts the call and the newline-delimited records it carries.
+//
+// why records: one Write now carries a whole flush batch, so call count is a
+// measure of flushes, not of messages.
 func (mw *mockWriter) Write(p []byte) (n int, err error) {
 	mw.mu.Lock()
 	defer mw.mu.Unlock()
 	mw.called++
+	mw.records += bytes.Count(p, []byte{'\n'})
 	return len(p), nil
 }
 
-// Count returns the number of times Write has been called.
+// Count returns the number of records written.
 func (mw *mockWriter) Count() int {
+	mw.mu.Lock()
+	defer mw.mu.Unlock()
+	return mw.records
+}
+
+// Writes returns the number of Write calls — one per flush batch.
+func (mw *mockWriter) Writes() int {
 	mw.mu.Lock()
 	defer mw.mu.Unlock()
 	return mw.called
@@ -38,9 +51,9 @@ func TestPublishMessageAndNoIO(t *testing.T) {
 	defer obj.Stop()
 
 	assert.Equal(t, "unsetLogEventPostProcessor", obj.Name())
-	obj.PublishLogMessage([]byte("test message 1"))
-	obj.PublishLogMessage([]byte("test message 2"))
-	obj.PublishLogMessage([]byte("test message 3"))
+	obj.PublishLogMessage([]byte("test message 1\n"))
+	obj.PublishLogMessage([]byte("test message 2\n"))
+	obj.PublishLogMessage([]byte("test message 3\n"))
 	assert.Equal(t, 0, out.Count())
 }
 
@@ -56,20 +69,20 @@ func TestPublishMessageWithIOAfterBufferReached(t *testing.T) {
 	obj := NewUnsetLogEventPostProcessor(time.Minute, 3, out)
 	defer obj.Stop()
 
-	obj.PublishLogMessage([]byte("test message 1"))
-	obj.PublishLogMessage([]byte("test message 2"))
+	obj.PublishLogMessage([]byte("test message 1\n"))
+	obj.PublishLogMessage([]byte("test message 2\n"))
 	// After msg2: len=2 < max=3, no flush yet.
 	assert.Equal(t, 0, out.Count())
 
 	// msg3 fills the bucket: append → len=3 >= max=3 → swap is triggered
 	// under the lock; a goroutine is spawned to flush [1,2,3].
-	obj.PublishLogMessage([]byte("test message 3"))
+	obj.PublishLogMessage([]byte("test message 3\n"))
 
 	// 3 messages, one Write each, delivered asynchronously.
 	assert.Eventually(t, func() bool { return out.Count() == 3 }, 200*time.Millisecond, 10*time.Millisecond)
 
 	// msg4 arrives into the fresh bucket and stays buffered.
-	obj.PublishLogMessage([]byte("test message 4"))
+	obj.PublishLogMessage([]byte("test message 4\n"))
 	assert.Equal(t, 3, out.Count())
 }
 
@@ -84,9 +97,9 @@ func TestPublishMessageWithIOAfterRate(t *testing.T) {
 	// No events → ticker fires → nothing written.
 	assert.Equal(t, 0, out.Count())
 
-	obj.PublishLogMessage([]byte("test message 1"))
-	obj.PublishLogMessage([]byte("test message 2"))
-	obj.PublishLogMessage([]byte("test message 3"))
+	obj.PublishLogMessage([]byte("test message 1\n"))
+	obj.PublishLogMessage([]byte("test message 2\n"))
+	obj.PublishLogMessage([]byte("test message 3\n"))
 
 	// 3 messages, one Write each, delivered by the ticker.
 	assert.Eventually(t, func() bool { return out.Count() == 3 }, 2*time.Second, 20*time.Millisecond)

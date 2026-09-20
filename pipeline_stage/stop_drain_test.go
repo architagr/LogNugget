@@ -1,6 +1,7 @@
 package pipelineStage
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,11 +19,11 @@ func Test_PostProcessor_StopDrainsActiveBucket(t *testing.T) {
 	// Use a very slow ticker so the flush is only triggered by Stop, not the ticker.
 	obj := NewUnsetLogEventPostProcessor(10*time.Minute, 100, out)
 
-	obj.PublishLogMessage([]byte("msg1"))
-	obj.PublishLogMessage([]byte("msg2"))
-	obj.PublishLogMessage([]byte("msg3"))
-	obj.PublishLogMessage([]byte("msg4"))
-	obj.PublishLogMessage([]byte("msg5"))
+	obj.PublishLogMessage([]byte("msg1\n"))
+	obj.PublishLogMessage([]byte("msg2\n"))
+	obj.PublishLogMessage([]byte("msg3\n"))
+	obj.PublishLogMessage([]byte("msg4\n"))
+	obj.PublishLogMessage([]byte("msg5\n"))
 
 	obj.Stop()
 
@@ -39,7 +40,7 @@ func Test_PostProcessor_StopSynchronous(t *testing.T) {
 	obj := NewUnsetLogEventPostProcessor(10*time.Minute, 100, out)
 
 	for i := 0; i < 20; i++ {
-		obj.PublishLogMessage([]byte("payload"))
+		obj.PublishLogMessage([]byte("payload\n"))
 	}
 
 	obj.Stop()
@@ -55,7 +56,7 @@ func Test_PostProcessor_StopIdempotent(t *testing.T) {
 
 	out := &mockWriter{}
 	obj := NewUnsetLogEventPostProcessor(10*time.Minute, 100, out)
-	obj.PublishLogMessage([]byte("x"))
+	obj.PublishLogMessage([]byte("x\n"))
 
 	obj.Stop()
 
@@ -79,24 +80,25 @@ func Test_PostProcessor_StopWithInFlightFlush(t *testing.T) {
 
 	// Publish messages before ticker fires.
 	for i := 0; i < 5; i++ {
-		obj.PublishLogMessage([]byte("tick-flush"))
+		obj.PublishLogMessage([]byte("tick-flush\n"))
 	}
 	// Wait for the ticker to fire and start an async flush goroutine.
 	time.Sleep(50 * time.Millisecond)
 
 	// Publish more messages that will be in the bucket when Stop fires.
 	for i := 0; i < 5; i++ {
-		obj.PublishLogMessage([]byte("stop-flush"))
+		obj.PublishLogMessage([]byte("stop-flush\n"))
 	}
 
 	obj.Stop()
 
 	mu.Lock()
-	total := len(writes)
+	total := strings.Count(strings.Join(writes, ""), "\n")
 	mu.Unlock()
 
-	// 10 messages, one Write each. We only care that at least the 5 stop-path
-	// messages are written; the tick-flushed ones may vary.
+	// Records, not Write calls: a flush writes its whole batch at once, so the
+	// ten messages arrive in as few as two writes. We only care that at least
+	// the 5 stop-path records are written; the tick-flushed ones may vary.
 	assert.GreaterOrEqual(t, total, 5, "Stop must drain stop-path messages; in-flight flush must also complete")
 }
 
