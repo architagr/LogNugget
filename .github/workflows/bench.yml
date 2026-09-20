@@ -1,0 +1,66 @@
+name: Performance gate
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# A queued re-run of the same ref supersedes the one in flight; benchmark jobs
+# are long and their results are only meaningful for the newest commit.
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench-gate:
+    name: bench-check (< 1 µs hard ceiling + regression vs baseline)
+    # A dedicated runner keeps timings comparable run-to-run. GitHub's hosted
+    # runners are noisy, so the gate's regression check is advisory on PRs from
+    # forks (no baseline write access) but the hard ceiling always blocks.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Run performance gate
+        run: ./scripts/bench-check.sh
+
+      - name: Upload benchmark output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: |
+            bench-baseline.txt
+          if-no-files-found: ignore
+
+  examples-build:
+    name: examples compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      # Each example is its own module with a replace to the repo root, so a
+      # breaking API change shows up here before it reaches users copying the
+      # README snippets.
+      - name: Build every example module
+        run: |
+          set -euo pipefail
+          for mod in $(find examples -name go.mod -maxdepth 3 | sort); do
+            dir="$(dirname "$mod")"
+            echo "::group::$dir"
+            (cd "$dir" && go build ./... && go vet ./...)
+            echo "::endgroup::"
+          done
