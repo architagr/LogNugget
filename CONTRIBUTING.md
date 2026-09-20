@@ -42,6 +42,22 @@ perf(lru): reduce allocations in hot path (refs #61)
 
 Types: `feat`, `fix`, `docs`, `chore`, `perf`, `refactor`, `test`.
 
+### Authorship
+
+Commits are authored by the person who opened the PR. Do not add trailers that
+credit an AI assistant for the work — no `Co-Authored-By:` line naming a model,
+no "Generated with ..." footer, no robot emoji.
+
+A `commit-msg` hook enforces this. Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+It matches attribution shapes rather than the words themselves, so a commit
+that edits AI-tool configuration, or documents this rule, is still free to say
+so in its own message.
+
 ## Running Tests
 
 ```bash

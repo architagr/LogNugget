@@ -1,0 +1,37 @@
+#!/bin/sh
+# Reject commit messages that credit Claude/Anthropic or advertise that a
+# model wrote the change. Commits here are authored by Archit Agarwal and
+# must read as his own work.
+#
+# This is the backstop for the same rule in ~/.claude/CLAUDE.md. Instructions
+# can be missed; a hook cannot. Enable with:
+#
+#     git config core.hooksPath .githooks
+#
+# Disable with: git config --unset core.hooksPath
+#
+# The patterns match attribution, not the words themselves: a commit that
+# changes Claude-related config or documents this very rule has to be
+# describable in its own message. Only the shapes a tool actually emits
+# are blocked.
+msg_file="$1"
+
+# Comment lines are stripped by git and may carry a verbose diff.
+body=$(grep -v '^#' "$msg_file")
+
+patterns='^[[:space:]]*co-authored-by:.*(claude|anthropic)
+generated (with|by) claude
+🤖
+noreply@anthropic\.com
+claude\.(ai|com)/(claude-)?code
+written by (claude|an ai|an llm)'
+
+if printf '%s' "$body" | grep -Eqi "$patterns"; then
+    echo "commit-msg hook: rejected." >&2
+    echo >&2
+    echo "This message credits Claude/Anthropic or advertises AI generation:" >&2
+    printf '%s' "$body" | grep -Eni "$patterns" | sed 's/^/  /' >&2
+    echo >&2
+    echo "Drop the trailer / attribution line and commit again." >&2
+    exit 1
+fi
