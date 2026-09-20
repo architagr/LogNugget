@@ -9,6 +9,11 @@
 // key name.
 package config_test
 
+// why (no t.Parallel in this file): every test here reads or mutates the
+// package-global configuration singleton. Running them in parallel let a test
+// that renames default fields observe — or be observed by — a test asserting
+// pristine defaults, which showed up as a rare -shuffle=on CI failure.
+
 import (
 	"bytes"
 	"context"
@@ -25,21 +30,11 @@ import (
 // available, then returns the first record's raw bytes. It yields to the
 // scheduler between polls and fails after 500 iterations.
 //
-// why: config.PublishLog is asynchronous — it enqueues onto a buffered channel
-// consumed by ProcessLogEvent in a background goroutine. A brief spin is
-// required before the assertion can observe the emitted record.
+// why: config.PublishLog is asynchronous — the record reaches the spy on the
+// dispatcher goroutine, not on this one.
 func drainDefaultFieldsSpy(t *testing.T, spy *support.FakePreProc) []byte {
 	t.Helper()
-	for i := 0; i < 500; i++ {
-		if recs := spy.Records(); len(recs) > 0 {
-			return recs[0].Data
-		}
-		done := make(chan struct{})
-		go func() { close(done) }()
-		<-done
-	}
-	t.Fatal("timed out waiting for log record; spy was never invoked")
-	return nil
+	return support.WaitForRecords(t, spy, 1, 0)[0].Data
 }
 
 // Test_SetDefaultFields_RenamesAndPrerenders verifies TS-11/AC-1:
@@ -86,7 +81,6 @@ func Test_SetDefaultFields_RenamesAndPrerenders(t *testing.T) {
 // Guards against a regression where buildRenderedFields is only called inside
 // SetDefaultFields and the cache is nil on a freshly-reset singleton.
 func Test_DefaultFieldsRendered_PopulatedAtInit(t *testing.T) {
-	t.Parallel()
 
 	rendered := config.GetConfig().DefaultFieldsRendered()
 	if rendered == nil {
@@ -119,7 +113,6 @@ func Test_DefaultFieldsRendered_PopulatedAtInit(t *testing.T) {
 // This ensures buildRenderedFields iterates the full map, not just the five
 // core keys.
 func Test_DefaultFieldsRendered_AllDefaultKeys(t *testing.T) {
-	t.Parallel()
 
 	cfg := config.GetConfig()
 	defaultFields := cfg.DefaultFields()
@@ -254,7 +247,6 @@ func Test_LogEntry_UsesPrerenderedPrefixInOutput(t *testing.T) {
 // structural invariant relied on by entry.logWithSkip when it appends
 // prefix + value + ',' directly.
 func Test_DefaultFieldsRendered_RenderedPrefixIsExactBytes(t *testing.T) {
-	t.Parallel()
 
 	rendered := config.GetConfig().DefaultFieldsRendered()
 	defaultFields := config.GetConfig().DefaultFields()

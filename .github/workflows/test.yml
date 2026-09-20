@@ -13,8 +13,16 @@ jobs:
   fmt-vet-test:
     strategy:
       matrix:
-        go-version: ["1.22", "1.23", "1.24"]
+        go-version: ["1.22", "1.24", "1.26"]
         platform: [ubuntu-latest, macos-latest, windows-latest]
+        exclude:
+          # Go 1.22 test binaries abort at load on the current macOS runner image:
+          # "dyld: missing LC_UUID load command", before any test code runs. It is a
+          # linker incompatibility between Go < 1.23 and macOS 15+, not something this
+          # module can fix. 1.22 is still covered on Linux and Windows, and macOS is
+          # covered on 1.24 and 1.26.
+          - go-version: "1.22"
+            platform: macos-latest
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Setup Go
@@ -38,7 +46,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.24
+          go-version: "1.26"
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Calc coverage

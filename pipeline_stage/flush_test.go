@@ -28,19 +28,19 @@ func Test_PublishLogMessage_AtomicSwap_NoDoubleWrite(t *testing.T) {
 	for i := 0; i < publishers; i++ {
 		go func() {
 			defer wg.Done()
-			obj.PublishLogMessage([]byte("msg"))
+			obj.PublishLogMessage([]byte("msg\n"))
 		}()
 	}
 	wg.Wait()
 
-	// Each flush goroutine calls printMessage which calls Write twice per
-	// message (data + "\n").  With maxBucket=5, the swap fires when the 5th
-	// message is appended, flushing those 5 messages (10 writes). The
-	// remaining messages (if any) stay buffered.  We only assert that the
-	// count does NOT exceed publishers×2 (no double-write).
+	// Each flush goroutine calls printMessage, which writes one record per
+	// message. With maxBucket=5, the swap fires when the 5th message is
+	// appended, flushing those 5 messages (5 writes). The remaining messages
+	// (if any) stay buffered. We only assert that the count does NOT exceed
+	// publishers (no double-write).
 	time.Sleep(50 * time.Millisecond) // let in-flight flush goroutines drain
 	count := out.Count()
-	assert.LessOrEqual(t, count, publishers*2,
+	assert.LessOrEqual(t, count, publishers,
 		"double-write detected: each message must be flushed exactly once")
 }
 
@@ -55,11 +55,11 @@ func Test_PostProcessor_FlushOnSize(t *testing.T) {
 	defer obj.Stop()
 
 	for i := 0; i < maxBucket; i++ {
-		obj.PublishLogMessage([]byte("event"))
+		obj.PublishLogMessage([]byte("event\n"))
 	}
 
-	// maxBucket messages × 2 writes each.
-	expected := maxBucket * 2
+	// One Write per record.
+	expected := maxBucket
 	assert.Eventually(t, func() bool { return out.Count() == expected },
 		200*time.Millisecond, 10*time.Millisecond,
 		"flush on size: expected %d Write calls, got %d", expected, out.Count())
@@ -74,13 +74,13 @@ func Test_PostProcessor_FlushOnTicker(t *testing.T) {
 	obj := NewUnsetLogEventPostProcessor(50*time.Millisecond, 100, out)
 	defer obj.Stop()
 
-	obj.PublishLogMessage([]byte("tick-msg-1"))
-	obj.PublishLogMessage([]byte("tick-msg-2"))
+	obj.PublishLogMessage([]byte("tick-msg-1\n"))
+	obj.PublishLogMessage([]byte("tick-msg-2\n"))
 
-	// 2 messages × 2 writes each = 4.
-	assert.Eventually(t, func() bool { return out.Count() == 4 },
+	// 2 messages, one Write each.
+	assert.Eventually(t, func() bool { return out.Count() == 2 },
 		2*time.Second, 20*time.Millisecond,
-		"ticker flush: expected 4 Write calls")
+		"ticker flush: expected 2 Write calls")
 }
 
 // Test_PostProcessor_IdleNoFlush verifies that the ticker does not produce
@@ -118,14 +118,14 @@ func Test_PostProcessor_ConcurrentPublishers_NoOverflow(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < msgsPerGoroutine; j++ {
-				obj.PublishLogMessage([]byte("concurrent-msg"))
+				obj.PublishLogMessage([]byte("concurrent-msg\n"))
 			}
 		}()
 	}
 	wg.Wait()
 
-	// All total messages × 2 writes each must arrive.
-	expected := total * 2
+	// One Write per record; all must arrive.
+	expected := total
 	assert.Eventually(t, func() bool { return out.Count() == expected },
 		5*time.Second, 50*time.Millisecond,
 		"concurrent publishers: expected %d Write calls, got %d", expected, out.Count())

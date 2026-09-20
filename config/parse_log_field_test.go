@@ -262,9 +262,9 @@ func Test_AppendField_AppendsToExistingDst(t *testing.T) {
 // Test_AppendField_NoAlloc_Numerics asserts that AppendField for integer and
 // float values performs zero heap allocations when the destination slice has
 // sufficient capacity pre-allocated. This guards the < 1 µs p99 SLO (NF1).
+// why: not parallel — testing.AllocsPerRun panics when called from a parallel
+// test (or a subtest of one) under Go 1.26+.
 func Test_AppendField_NoAlloc_Numerics(t *testing.T) {
-	t.Parallel()
-
 	buf := make([]byte, 0, 64)
 
 	numericCases := []struct {

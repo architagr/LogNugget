@@ -2,9 +2,13 @@
 
 // Package config_test exercises static-env and context parser contracts
 // (F15, F16, TS-13, TS-14). All sub-tests share the process-wide config
-// singleton and run sequentially under one parallel parent — same strategy
-// as entry_test.Test_LogEntry_Methods — to prevent races.
+// singleton and run sequentially to prevent races.
 package config_test
+
+// why (no t.Parallel in this file): every test here reads or mutates the
+// package-global configuration singleton. Running them in parallel let a test
+// that renames default fields observe — or be observed by — a test asserting
+// pristine defaults, which showed up as a rare -shuffle=on CI failure.
 
 import (
 	"context"
@@ -17,19 +21,10 @@ import (
 	"github.com/architagr/lognugget/test/support"
 )
 
-// drainN spins until spy has at least n records, then returns them.
+// drainN waits until spy has at least n records, then returns the first n.
 func drainN(t *testing.T, spy *support.FakePreProc, n int) []support.FakePreProcRecord {
 	t.Helper()
-	for i := 0; i < 2000; i++ {
-		if recs := spy.Records(); len(recs) >= n {
-			return recs[:n]
-		}
-		done := make(chan struct{})
-		go func() { close(done) }()
-		<-done
-	}
-	t.Fatalf("timed out waiting for %d log records", n)
-	return nil
+	return support.WaitForRecords(t, spy, n, 0)[:n]
 }
 
 // resetParser resets the singleton to debug/JSON defaults and registers spy
@@ -45,7 +40,6 @@ func resetParser(t *testing.T, name string) *support.FakePreProc {
 // Test_Parsers groups all static + context parser sub-tests sequentially
 // under one parallel parent to prevent singleton races (TS-13, TS-14).
 func Test_Parsers(t *testing.T) {
-	t.Parallel()
 
 	// TS-13: static env parser
 

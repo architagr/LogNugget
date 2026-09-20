@@ -278,6 +278,24 @@ func AppendField(dst []byte, key string, value any) []byte {
 	return dst
 }
 
+// SafeFieldKey returns key, prefixed with DefaultPrefix ("custom.") when it
+// collides with one of the reserved core field names (time, level, message,
+// error, caller — or whatever they have been renamed to via SetDefaultFields).
+//
+// why: the typed chain methods write straight into the entry buffer, so
+// without this check a caller's Str("time", …) emitted a second "time" member
+// alongside the record's own timestamp. Duplicate keys in one JSON object are
+// ambiguous — a parser may keep either the first or the last — so the
+// collision has to be resolved before the bytes are written.
+//
+// The lookup reads the atomic hot snapshot: no lock, no allocation.
+func SafeFieldKey(key string) string {
+	if _, restricted := GetHotSnapshot().RestrictedFields[key]; restricted {
+		return DefaultPrefix + key
+	}
+	return key
+}
+
 // AppendAttr appends a JSON key-value fragment of the form `"key":value` to
 // dst for attr and returns the extended slice. dst may be nil.
 //
@@ -293,12 +311,12 @@ func AppendField(dst []byte, key string, value any) []byte {
 // AppendAttr is safe for concurrent use; it reads no shared state.
 func AppendAttr(dst []byte, key string, attr model.LogAttr) []byte {
 	// Write the key as a quoted, RFC 8259 escaped JSON string.
-	dst = appendJSONString(dst, []byte(key))
+	dst = appendJSONStringStr(dst, key)
 	dst = append(dst, ':')
 
 	switch attr.Kind() {
 	case model.KindStr:
-		dst = appendJSONString(dst, []byte(attr.StrVal()))
+		dst = appendJSONStringStr(dst, attr.StrVal())
 
 	case model.KindInt:
 		dst = strconv.AppendInt(dst, attr.IntVal(), 10)
@@ -325,7 +343,7 @@ func AppendAttr(dst []byte, key string, attr model.LogAttr) []byte {
 		// call sites. New callers should use the typed constructors.
 		switch v := attr.Value.(type) {
 		case string:
-			dst = appendJSONString(dst, []byte(v))
+			dst = appendJSONStringStr(dst, v)
 		case int:
 			dst = strconv.AppendInt(dst, int64(v), 10)
 		case int8:
@@ -362,9 +380,15 @@ func AppendAttr(dst []byte, key string, attr model.LogAttr) []byte {
 		case bool:
 			dst = strconv.AppendBool(dst, v)
 		default:
-			// why: ultimate slow path for unknown/composite types. fmt.Appendf
-			// avoids an intermediate string allocation vs fmt.Sprintf.
-			dst = fmt.Appendf(dst, "%+v", attr.Value)
+			// Ultimate slow path: render the value with %+v and emit it as a
+			// JSON string.
+			//
+			// why quoted: this branch used to append the %+v bytes raw, so a
+			// slice, map or struct produced `"key":[1s 2s 4s]` — not valid
+			// JSON, and enough to break a whole log line for any consumer that
+			// parses it. Composite values are worth logging; emitting them
+			// unparseable is not.
+			dst = appendJSONStringStr(dst, fmt.Sprintf("%+v", attr.Value))
 		}
 	}
 
@@ -386,20 +410,27 @@ func ValidateAndAppendField(dst []byte, key string, value any, restrictedSet map
 }
 
 // AppendContextFields writes per-request context fields to dst and returns the
-// extended slice. When a ContextFieldsAppender is registered it is called
-// directly (zero intermediate allocations). Otherwise the legacy
-// ContextFieldsParser path is used (allocates a map, but acquires no extra
-// configMu locks — restricted-key checks use snap.RestrictedFields).
+// extended slice. Priority: ContextAppender > ContextFunc > ContextParser.
 //
-// If ctx is nil both paths are skipped and dst is returned unchanged.
-func AppendContextFields(ctx context.Context, dst []byte, snap HotSnapshot) []byte {
+// ContextAppender: raw []byte writer, zero allocations, power-user path.
+// ContextFunc: typed *CtxFields writer; cf must be the caller's pre-allocated
+// CtxFields (e.g. embedded in LogEntry) — no separate pool Get/Put needed.
+// ContextParser: legacy map[string]any path; allocates per call.
+//
+// If ctx is nil all paths are skipped and dst is returned unchanged.
+func AppendContextFields(ctx context.Context, dst []byte, snap HotSnapshot, cf *CtxFields) []byte {
 	if ctx == nil {
 		return dst
 	}
 	if snap.ContextAppender != nil {
 		// why: appender writes directly into dst — zero map/slice allocations.
-		// Parser is intentionally NOT called when appender is registered (P3 AC-1).
 		return snap.ContextAppender(ctx, dst)
+	}
+	if snap.ContextFunc != nil && cf != nil {
+		// why: cf is owned by the pooled LogEntry — no extra allocation.
+		cf.buf = dst
+		snap.ContextFunc(ctx, cf)
+		return cf.buf
 	}
 	if snap.ContextParser != nil {
 		for key, value := range snap.ContextParser(ctx) {

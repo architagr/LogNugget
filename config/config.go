@@ -115,6 +115,13 @@ var atomicProcsSlice atomic.Pointer[[]preProcessingObserverContract]
 // without global shared-state races (issue #131 drain-race fix).
 type drainSignal struct {
 	procs *[]preProcessingObserverContract
+	// ack is closed by the draining goroutine just before it returns, so
+	// resetConfig can retire the old epoch's pre-processors only once nobody
+	// is dispatching against them any more. why: clearing atomicProcsSlice
+	// while the old consumer was still in normal (non-drain) mode dropped
+	// every event it popped in that window — the drain-on-stop test lost
+	// ~12% of its events under -shuffle.
+	ack chan struct{}
 }
 
 // ringDoneCh is sent-to by resetConfig to signal the current ProcessLogEvent
@@ -181,9 +188,12 @@ type HotSnapshot struct {
 	StaticFields string
 	// ContextParser is the legacy context-field extractor (nil if unset).
 	ContextParser ContextFieldsParser
-	// ContextAppender is the high-performance context-field writer (nil if unset).
-	// P3 will set this; P1 carries the field so the struct is forward-compatible.
+	// ContextAppender is the raw-bytes context-field writer (nil if unset).
+	// Takes precedence over ContextFunc on the hot path.
 	ContextAppender ContextFieldsAppender
+	// ContextFunc is the typed context-field writer (nil if unset).
+	// Used when ContextAppender is nil; writes via *CtxFields, no separate pool.
+	ContextFunc ContextFieldsFunc
 	// Encoder is the active log encoder (JSON or text).
 	Encoder encoder.Encoder
 	// EncoderType is the discriminator for the active encoder.
@@ -228,6 +238,7 @@ func storeHotSnapshot() {
 		StaticFields:     defaultConfig.parsedStaticFields,
 		ContextParser:    defaultConfig.contextParser,
 		ContextAppender:  defaultConfig.contextAppender,
+		ContextFunc:      defaultConfig.contextFunc,
 		Encoder:          defaultConfig.encoderObj,
 		EncoderType:      defaultConfig.encoderType,
 		RestrictedFields: restrictedFieldsSet,
@@ -288,7 +299,8 @@ type Config struct {
 	rate                  time.Duration                 // Rate to push logs to output
 	parsedStaticFields    string                        // this is the satic fields
 	contextParser         ContextFieldsParser           // Function to extract context fields
-	contextAppender       ContextFieldsAppender         // High-performance context-field writer (P3)
+	contextAppender       ContextFieldsAppender         // Raw-bytes context-field writer; takes precedence over contextFunc
+	contextFunc           ContextFieldsFunc             // Typed context-field writer; used when contextAppender is nil
 	defaultFields         map[enum.DefaultLogKey]string // Default fields to log with every entry
 	defaultFieldsRendered map[enum.DefaultLogKey][]byte // pre-rendered `"key":` prefix bytes; populated by buildRenderedFields
 	timeFormat            string                        // Time format for log entries
@@ -456,9 +468,16 @@ func SetOutput(output io.Writer) {
 		output = DefaultOutput
 	}
 	configMu.Lock()
-	defer configMu.Unlock()
 	defaultConfig.output = output
 	storeHotSnapshot()
+	configMu.Unlock()
+
+	// Retune the built-in collector outside the config lock: it takes its own
+	// mutex, and holding both would order two locks that are otherwise
+	// unrelated.
+	if sink := loadDefaultSink(); sink != nil {
+		sink.SetOutput(output)
+	}
 }
 
 // PublishLog sends Data onto the dispatch channel. Safe for concurrent use;
@@ -477,6 +496,13 @@ func SetOutput(output io.Writer) {
 // stored inside configMu.Lock in resetConfig so the load always returns a
 // valid ring (V3-P9 / LLD §5.1).
 func PublishLog(Level enum.LogLevel, Data []byte) {
+	// Sync mode (opt-in, off by default) delivers the record on this goroutine
+	// instead of queueing it — see [SetSyncMode] for when that is the right
+	// trade. The atomic load costs under a nanosecond on the async path.
+	if syncModeAtomic.Load() {
+		publishSync(Level, Data)
+		return
+	}
 	atomicRing.Load().Push(LogEvent{Level: Level, Data: Data})
 }
 
@@ -490,9 +516,13 @@ func SetLogBufferMaxSize(size int) {
 		size = 20 // Default buffer size
 	}
 	configMu.Lock()
-	defer configMu.Unlock()
 	defaultConfig.logBufferMaxSize = size
 	storeHotSnapshot()
+	configMu.Unlock()
+
+	if sink := loadDefaultSink(); sink != nil {
+		sink.SetMaxBucketSize(size)
+	}
 }
 
 // SetRate sets the rate at which buffered logs are pushed to output.
@@ -505,9 +535,13 @@ func SetRate(rate time.Duration) {
 		rate = 1 * time.Second // Default rate is 1 sec
 	}
 	configMu.Lock()
-	defer configMu.Unlock()
 	defaultConfig.rate = rate
 	storeHotSnapshot()
+	configMu.Unlock()
+
+	if sink := loadDefaultSink(); sink != nil {
+		sink.SetRate(rate)
+	}
 }
 
 // restrictedFieldsSet is the O(1) replacement for the former restrictedFields
@@ -611,7 +645,10 @@ func SetStaticEnvFieldsParser(parser StaticEnvFieldsParser) {
 			list = append(list, ValidateandParseLogField(key, value))
 		}
 		if len(list) > 0 {
-			parsed = strings.Join(list, ", ")
+			// why ",": the separator goes straight into the record, and a
+			// ", " here made static fields the only members rendered with a
+			// space after the comma.
+			parsed = strings.Join(list, ",")
 		}
 	}
 	configMu.Lock()
@@ -634,9 +671,15 @@ func SetContextFieldsParser(parser ContextFieldsParser) {
 // SetContextFieldsAppender sets the zero-alloc context field writer.
 // When set, it takes precedence over any ContextFieldsParser on the hot path.
 // The appender receives the entry buffer and must append ,key:value fragments
-// for each context field, returning the extended buffer. storeHotSnapshot is
-// called inside the lock so the atomic snapshot immediately reflects the new
-// ContextAppender (V3-P2 / LLD §4.1). Safe for concurrent use.
+// for each context field, returning the extended buffer.
+//
+// Prefer SetContextFields for most use cases — it accepts typed field methods
+// (Str, Int, Bool, Float64, Uint) and handles JSON encoding internally, so
+// callers do not need to manage raw JSON bytes. Use SetContextFieldsAppender
+// only when you need direct []byte control (custom encoding, binary fields).
+//
+// storeHotSnapshot is called inside the lock so the atomic snapshot immediately
+// reflects the new ContextAppender (V3-P2 / LLD §4.1). Safe for concurrent use.
 func SetContextFieldsAppender(appender ContextFieldsAppender) {
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -672,6 +715,13 @@ func GetChannelCapacity() int {
 
 // RegisterHook registers hook to be invoked whenever a log event at
 // level is dispatched. Safe for concurrent use.
+//
+// Deprecated: this registry is not consulted by the dispatch path — a hook
+// registered here never receives an event. Fan-out is owned by the
+// pre-processor stage; register with
+// pipelineStage.EventPreProcessorObj.RegisterHook(level, hook) instead, which
+// is what the zero-config pipeline itself uses. Kept only so existing callers
+// still compile; it will be removed in the next major release.
 func RegisterHook(level enum.LogLevel, hook PublishLogMessageHookContract) {
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -686,6 +736,10 @@ func RegisterHook(level enum.LogLevel, hook PublishLogMessageHookContract) {
 // DeRegisterHook removes the hook identified by hookName from level's
 // handler set. It is a no-op if the level or name is unknown. Safe for
 // concurrent use.
+//
+// Deprecated: the registry it mutates is not consulted by the dispatch path.
+// Use pipelineStage.EventPreProcessorObj.DeRegisterHook instead. See
+// [RegisterHook].
 func DeRegisterHook(level enum.LogLevel, hookName string) {
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -758,6 +812,13 @@ func GetConfig() *Config {
 // the channel mutex from the consumer hot path, completing the V3 sub-500 ns
 // target.
 func ProcessLogEvent(currentRing *mpscRingBuffer, done chan drainSignal) {
+	// ackDrain tells resetConfig that this epoch's consumer has finished, so
+	// the old pre-processor snapshot can be retired.
+	ackDrain := func(sig drainSignal) {
+		if sig.ack != nil {
+			close(sig.ack)
+		}
+	}
 
 	for {
 		e, ok := currentRing.Pop()
@@ -771,8 +832,11 @@ func ProcessLogEvent(currentRing *mpscRingBuffer, done chan drainSignal) {
 				for currentRing.Len() > 0 {
 					if ev, ok2 := currentRing.Pop(); ok2 {
 						dispatchTo(ev, sig.procs)
+						ReturnDispatchBuf(ev.Data)
+						currentRing.dispatched.Add(1)
 					}
 				}
+				ackDrain(sig)
 				return
 			default:
 				runtime.Gosched()
@@ -786,22 +850,29 @@ func ProcessLogEvent(currentRing *mpscRingBuffer, done chan drainSignal) {
 		select {
 		case sig := <-done:
 			dispatchTo(e, sig.procs)
+			ReturnDispatchBuf(e.Data)
+			currentRing.dispatched.Add(1)
 			for currentRing.Len() > 0 {
 				if ev, ok2 := currentRing.Pop(); ok2 {
 					dispatchTo(ev, sig.procs)
+					ReturnDispatchBuf(ev.Data)
+					currentRing.dispatched.Add(1)
 				}
 			}
+			ackDrain(sig)
 			return
 		default:
 			dispatchEvent(e)
+			currentRing.dispatched.Add(1)
 		}
 	}
 }
 
 // dispatchEvent forwards e to every registered PreProcessor using the current
-// atomicProcsSlice snapshot — no lock acquired (issue #131 race fix).
+// atomicProcsSlice snapshot, then returns e.Data to dispatchBufPool (V4-P2).
 func dispatchEvent(e LogEvent) {
 	dispatchTo(e, atomicProcsSlice.Load())
+	ReturnDispatchBuf(e.Data)
 }
 
 // dispatchTo forwards e to every PreProcessor in procs. procs is an immutable
@@ -929,8 +1000,12 @@ func resetConfig() {
 	// The drain goroutine receives this snapshot via drainSignal so it can
 	// dispatch remaining ring events to the OLD pre-processors even after the
 	// new epoch's empty slice is stored (issue #131 drain-race fix).
+	//
+	// The clear itself is deferred until the old consumer acknowledges the
+	// drain (below): while it is still in normal mode it dispatches against
+	// atomicProcsSlice, so clearing here silently dropped every event it
+	// popped between this point and its next look at the done channel.
 	oldProcs = atomicProcsSlice.Load()
-	rebuildProcsSlice()
 	// why: restrictedFieldsSet must be rebuilt here so that
 	// ValidateandParseLogField works correctly from the very first call —
 	// even before any SetDefaultFields call is made. This is the fix for D-8:
@@ -943,6 +1018,9 @@ func resetConfig() {
 	// tests (and at init). Without this store, the atomic would retain a
 	// stale value from a previous SetMinLevel call across test resets.
 	atomicMinLevel.Store(int64(newCfg.minLevel))
+	// Sync mode is opt-in; a reset returns to the asynchronous default so a
+	// test that enables it cannot leak the setting into the next one.
+	syncModeAtomic.Store(false)
 	// why: storeHotSnapshot must be called after defaultConfig, restrictedFieldsSet,
 	// and atomicMinLevel are all written, so the published pointer contains a
 	// fully-consistent reset snapshot. Readers that call GetHotSnapshot after
@@ -956,10 +1034,28 @@ func resetConfig() {
 	// the goroutine hasn't been scheduled yet. nil on the very first call from
 	// init (before any goroutine has started).
 	if oldDoneCh != nil {
-		oldDoneCh <- drainSignal{procs: oldProcs}
+		ack := make(chan struct{})
+		oldDoneCh <- drainSignal{procs: oldProcs, ack: ack}
+		// Wait for the previous epoch's consumer to finish before retiring its
+		// pre-processors. Bounded so a hook wedged on slow IO cannot deadlock
+		// a reset; on timeout the clear proceeds and the straggler dispatches
+		// against its own snapshot, which is still valid memory.
+		select {
+		case <-ack:
+		case <-time.After(drainAckTimeout):
+		}
 	}
+
+	configMu.Lock()
+	rebuildProcsSlice()
+	configMu.Unlock()
+
 	go ProcessLogEvent(newRing, newDoneCh)
 }
+
+// drainAckTimeout bounds how long resetConfig waits for the previous epoch's
+// consumer goroutine to finish draining.
+const drainAckTimeout = 2 * time.Second
 
 // MinLevel returns the minimum log level. Safe for concurrent use.
 func (c *Config) MinLevel() enum.LogLevel {

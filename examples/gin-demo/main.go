@@ -28,24 +28,15 @@ func init() {
 			"version":  "1.0.0",
 		}
 	})
-	// V3: Use SetContextFieldsAppender for zero-alloc context field injection.
-	// This replaces the legacy SetContextFieldsParser (map[string]any) path
-	// and eliminates ~100 ns + 4 allocs/call. The appender writes directly into
-	// the log-line buffer without any intermediate map or slice allocation.
-	config.SetContextFieldsAppender(func(ctx context.Context, dst []byte) []byte {
-		requestId := ctx.Value("request_id")
-		userId := ctx.Value("user_id")
-		if requestId != nil {
-			dst = append(dst, `,"request_id":"`...)
-			dst = append(dst, fmt.Sprint(requestId)...)
-			dst = append(dst, '"')
+	// Use SetContextFields for per-request context field injection.
+	// LogNugget handles JSON encoding and escaping internally.
+	config.SetContextFields(func(ctx context.Context, f *config.CtxFields) {
+		if requestId, ok := ctx.Value("request_id").(string); ok && requestId != "" {
+			f.Str("request_id", requestId)
 		}
-		if userId != nil {
-			dst = append(dst, `,"user_id":"`...)
-			dst = append(dst, fmt.Sprint(userId)...)
-			dst = append(dst, '"')
+		if userId, ok := ctx.Value("user_id").(string); ok && userId != "" {
+			f.Str("user_id", userId)
 		}
-		return dst
 	})
 
 }

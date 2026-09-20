@@ -13,7 +13,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/architagr/lognugget/config"
 	"github.com/architagr/lognugget/entry"
@@ -22,26 +21,11 @@ import (
 	"github.com/architagr/lognugget/test/support"
 )
 
-// drainSpyIntegration polls spy.Records() until at least one record is
-// available, failing after a time-bounded number of iterations.
-//
-// why: config.PublishLog is asynchronous; the event is sent on a buffered
-// channel consumed by config.ProcessLogEvent in a background goroutine. A
-// short yield-loop is necessary before asserting on the emitted payload.
+// drainSpyIntegration waits for the asynchronous pipeline to deliver one
+// record and returns its bytes.
 func drainSpyIntegration(t *testing.T, spy *support.FakePreProc) []byte {
 	t.Helper()
-	for i := 0; i < 500; i++ {
-		recs := spy.Records()
-		if len(recs) > 0 {
-			return recs[0].Data
-		}
-		// Yield to the scheduler without a fixed sleep duration.
-		done := make(chan struct{})
-		go func() { close(done) }()
-		<-done
-	}
-	t.Fatal("timed out waiting for log record from FakePreProc")
-	return nil
+	return support.WaitForRecords(t, spy, 1, 0)[0].Data
 }
 
 // Test_Integration_CollisionPrefix_UserFieldTimeEmitsAsCustomTime is the SC7
@@ -175,20 +159,7 @@ func Test_Integration_CollisionPrefix_StaticFieldTimeEmitsAsCustomTime(t *testin
 
 	// Allow enough time for the background goroutine to deliver.
 	var raw []byte
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		recs := spy.Records()
-		if len(recs) > 0 {
-			raw = recs[0].Data
-			break
-		}
-		done := make(chan struct{})
-		go func() { close(done) }()
-		<-done
-	}
-	if raw == nil {
-		t.Fatal("timed out waiting for log record")
-	}
+	raw = support.WaitForRecords(t, spy, 1, 0)[0].Data
 
 	var logMap map[string]string
 	if err := json.Unmarshal(raw, &logMap); err != nil {

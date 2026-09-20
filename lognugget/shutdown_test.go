@@ -4,6 +4,7 @@
 package lognugget
 
 import (
+	"bytes"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -21,18 +22,22 @@ func resetShutdown(proc postProcessor) {
 	shutdownOnce = sync.Once{}
 }
 
-// countingWriter is a thread-safe io.Writer that counts every Write call.
+// countingWriter is a thread-safe io.Writer that counts the newline-delimited
+// records written to it.
+//
+// why records rather than Write calls: a flush writes its whole batch in one
+// Write, so call count measures flushes, not messages.
 type countingWriter struct {
 	n atomic.Int64
 }
 
-// Write satisfies io.Writer; increments the call counter each invocation.
+// Write satisfies io.Writer; counts the records carried by p.
 func (w *countingWriter) Write(p []byte) (int, error) {
-	w.n.Add(1)
+	w.n.Add(int64(bytes.Count(p, []byte{'\n'})))
 	return len(p), nil
 }
 
-// count returns the total number of Write calls recorded.
+// count returns the total number of records written.
 func (w *countingWriter) count() int {
 	return int(w.n.Load())
 }
@@ -51,7 +56,7 @@ func Test_Shutdown_Idempotent(t *testing.T) {
 
 // Test_Shutdown_DrainsDefaultPostProcessor enqueues N messages into the default
 // post-processor, calls Shutdown, then asserts that the writer saw all events
-// (each message produces 2 Write calls: data + newline separator).
+// (one Write call per record).
 func Test_Shutdown_DrainsDefaultPostProcessor(t *testing.T) {
 	const msgCount = 5
 	out := &countingWriter{}
@@ -59,13 +64,13 @@ func Test_Shutdown_DrainsDefaultPostProcessor(t *testing.T) {
 	resetShutdown(proc)
 
 	for i := 0; i < msgCount; i++ {
-		proc.PublishLogMessage([]byte("event"))
+		proc.PublishLogMessage([]byte("event\n"))
 	}
 
 	Shutdown()
 
 	// each message produces data write + "\n" write = 2 calls each
-	assert.Equal(t, msgCount*2, out.count(),
+	assert.Equal(t, msgCount, out.count(),
 		"Shutdown must drain all enqueued messages through the writer")
 }
 
@@ -79,13 +84,13 @@ func Test_Shutdown_BlocksUntilDrain(t *testing.T) {
 	resetShutdown(proc)
 
 	for i := 0; i < msgCount; i++ {
-		proc.PublishLogMessage([]byte("payload"))
+		proc.PublishLogMessage([]byte("payload\n"))
 	}
 
 	Shutdown()
 
 	// If Shutdown is truly synchronous, all writes must be done by the time
 	// Shutdown returns — no polling or waiting required here.
-	assert.Equal(t, msgCount*2, out.count(),
+	assert.Equal(t, msgCount, out.count(),
 		"Shutdown must block until all writes complete before returning")
 }

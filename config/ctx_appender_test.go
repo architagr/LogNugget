@@ -35,7 +35,7 @@ func Test_SetContextFieldsAppender_Priority(t *testing.T) {
 
 	snap := config.GetHotSnapshot()
 	ctx := context.Background()
-	dst := config.AppendContextFields(ctx, []byte{}, snap)
+	dst := config.AppendContextFields(ctx, []byte{}, snap, &config.CtxFields{})
 
 	assert.False(t, parserCalled, "parser must not be called when appender is registered")
 	assert.Contains(t, string(dst), "from_appender")
@@ -50,7 +50,7 @@ func Test_AppendContextFields_NilCtx(t *testing.T) {
 	snap := config.GetHotSnapshot()
 
 	dst := []byte("before")
-	got := config.AppendContextFields(nil, dst, snap)
+	got := config.AppendContextFields(nil, dst, snap, &config.CtxFields{})
 	assert.Equal(t, "before", string(got))
 }
 
@@ -62,7 +62,7 @@ func Test_AppendContextFields_AppenderOutput(t *testing.T) {
 	snap := config.GetHotSnapshot()
 
 	ctx := context.Background()
-	got := config.AppendContextFields(ctx, nil, snap)
+	got := config.AppendContextFields(ctx, nil, snap, &config.CtxFields{})
 	assert.Equal(t, `,"req_id":"abc"`, string(got))
 }
 
@@ -74,7 +74,7 @@ func Test_AppendContextFields_LegacyParserStillWorks(t *testing.T) {
 	snap := config.GetHotSnapshot()
 
 	ctx := context.Background()
-	got := config.AppendContextFields(ctx, nil, snap)
+	got := config.AppendContextFields(ctx, nil, snap, &config.CtxFields{})
 	assert.Contains(t, string(got), `"user":"alice"`)
 }
 
@@ -93,7 +93,7 @@ func Test_AppendContextFields_AppenderCollisionBypass(t *testing.T) {
 	snap := config.GetHotSnapshot()
 
 	ctx := context.Background()
-	got := config.AppendContextFields(ctx, nil, snap)
+	got := config.AppendContextFields(ctx, nil, snap, &config.CtxFields{})
 
 	// The appender output is present verbatim — no prefix added.
 	assert.Equal(t, `,"level":"injected"`, string(got),

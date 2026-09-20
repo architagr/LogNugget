@@ -1,29 +1,57 @@
+# golangci-lint configuration (schema v2).
+# Run with: golangci-lint run
+version: "2"
+
+run:
+  # The hot-path benchmarks and test-only helpers live behind the `testing` tag;
+  # lint the same build as CI so tagged files are type-checked, not skipped.
+  build-tags:
+    - testing
+  tests: false
+
 linters:
+  # Explicit list — the v2 default set is implicit otherwise and drifts between
+  # releases. errcheck / govet / ineffassign / staticcheck / unused are the v2
+  # defaults; bodyclose / godot / noctx are additions.
+  default: none
+  enable:
+    - bodyclose
+    - errcheck
+    - godot
+    - govet
+    - ineffassign
+    - noctx
+    - staticcheck
+    - unused
+  settings:
+    godot:
+      scope: declarations
+      capital: false
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+        path: _test\.go
+      - linters:
+          - unused
+        path: test_only_helpers\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+
+formatters:
   enable:
     - gofmt
-    - govet
-    - staticcheck
-    - gosimple
-    - ineffassign
-    - unused
-    - errcheck
-    - bodyclose
-    - noctx
-    - godot
-  disable:
-    - depguard
-linters-settings:
-  godot:
-    scope: declarations
-    capital: false
-run:
-  timeout: 5m
-  tests: false
-issues:
-  exclude-rules:
-    - path: "_test.go"
-      linters:
-        - errcheck
-    - path: "test_only_helpers.go"
-      linters:
-        - unused
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
