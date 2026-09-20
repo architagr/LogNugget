@@ -5,7 +5,7 @@ package config
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // BenchmarkAppendQuotedLevel_Named measures the pre-rendered fast path (no

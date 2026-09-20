@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/enum"
-	"github.com/architagr/lognugget/model"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/enum"
+	"github.com/architagr/lognugget/v4/model"
 )
 
 // --- Config accessor coverage ---

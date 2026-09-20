@@ -5,7 +5,7 @@ package config
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 func Test_AppendQuotedLevel_NamedLevels(t *testing.T) {

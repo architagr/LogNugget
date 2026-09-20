@@ -13,10 +13,10 @@ import (
 	"io"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/enum"
-	"github.com/architagr/lognugget/model"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/entry"
+	"github.com/architagr/lognugget/v4/enum"
+	"github.com/architagr/lognugget/v4/model"
 )
 
 // ConfigBuilder applies a fluent chain of setters against the

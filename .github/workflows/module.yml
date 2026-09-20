@@ -1,0 +1,99 @@
+name: Module
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  consumable:
+    name: module is consumable by an outside caller
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      # why this job exists: nothing else in the repo resolves this module the
+      # way a user does. CI builds from the working tree, and every example
+      # reaches the library through a `replace` directive. That blind spot let
+      # the module ship for four months (v2.0.0 through v4.0.0) with a module
+      # path Go rejects outright — the proxy served only v1.0.0 and no one
+      # could `go get` any release. See issue #140.
+      - name: Module path declares the right major version
+        run: |
+          set -euo pipefail
+          module_path="$(go list -m)"
+          echo "module path: $module_path"
+
+          # Derive the major version this checkout claims, from the nearest tag.
+          tag="$(git describe --tags --abbrev=0 2>/dev/null || echo "")"
+          if [ -z "$tag" ]; then
+            echo "no tags yet; nothing to check"
+            exit 0
+          fi
+          major="${tag%%.*}"       # v4.0.0 -> v4
+          major="${major#v}"       # v4     -> 4
+          echo "nearest tag: $tag (major $major)"
+
+          if [ "$major" -lt 2 ]; then
+            expected_suffix=""
+          else
+            expected_suffix="/v$major"
+          fi
+
+          case "$module_path" in
+            *"$expected_suffix")
+              echo "OK: module path matches major version $major"
+              ;;
+            *)
+              echo "::error::module path '$module_path' does not end in '$expected_suffix'." \
+                   "Go refuses to fetch a v${major} tag unless the module path carries the" \
+                   "major-version suffix, so every release would be uninstallable."
+              exit 1
+              ;;
+          esac
+
+      # A consumer never uses the working tree. Build a throwaway module that
+      # imports the library through its real path, with a replace pointing at
+      # this checkout, so the public import paths are exercised as published.
+      - name: Import the module as an outside caller would
+        run: |
+          set -euo pipefail
+          module_path="$(go list -m)"
+          workdir="$(mktemp -d)"
+          cd "$workdir"
+
+          go mod init consumer.example/check
+          cat > main.go <<EOF
+          package main
+
+          import (
+              "context"
+
+              "$module_path/entry"
+              "$module_path/lognugget"
+          )
+
+          func main() {
+              defer lognugget.Shutdown()
+              entry.NewLogEntry().Str("from", "consumer").Info(context.Background(), "ok")
+          }
+          EOF
+
+          # The require version must match the module path's major: a /v4
+          # module cannot be required at v0.0.0.
+          case "$module_path" in
+            */v[0-9]*) major_num="${module_path##*/v}"; require_version="v${major_num}.0.0" ;;
+            *)         require_version="v0.0.0" ;;
+          esac
+          go mod edit -require="$module_path@$require_version"
+          go mod edit -replace="$module_path=$GITHUB_WORKSPACE"
+          go mod tidy
+          go build ./...
+          go run .

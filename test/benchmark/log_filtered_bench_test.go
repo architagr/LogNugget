@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/entry"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // Benchmark_Log_Filtered_BelowMinLevel measures the fast-reject path (F6):

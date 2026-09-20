@@ -8,9 +8,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/lognugget"
-	"github.com/architagr/lognugget/model"
+	"github.com/architagr/lognugget/v4/entry"
+	"github.com/architagr/lognugget/v4/lognugget"
+	"github.com/architagr/lognugget/v4/model"
 )
 
 func main() {

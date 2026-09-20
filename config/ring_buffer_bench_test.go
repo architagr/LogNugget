@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // BenchmarkRingBuffer_Push measures producer-side push throughput under

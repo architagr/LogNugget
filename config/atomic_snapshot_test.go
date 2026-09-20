@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // Test_GetHotSnapshot_NilSafe asserts that hotSnapshotPtr is never nil after

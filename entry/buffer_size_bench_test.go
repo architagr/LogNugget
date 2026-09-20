@@ -9,7 +9,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/architagr/lognugget/entry"
+	"github.com/architagr/lognugget/v4/entry"
 )
 
 // BenchmarkBufferSeverance measures the allocation bytes per call on the hot

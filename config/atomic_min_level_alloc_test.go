@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // Test_GetAtomicMinLevel_ZeroAlloc asserts that GetAtomicMinLevel performs

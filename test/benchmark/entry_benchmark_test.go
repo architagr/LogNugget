@@ -15,8 +15,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/model"
+	"github.com/architagr/lognugget/v4/entry"
+	"github.com/architagr/lognugget/v4/model"
 )
 
 type ctxKey string

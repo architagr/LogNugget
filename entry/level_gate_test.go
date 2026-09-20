@@ -10,10 +10,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/enum"
-	"github.com/architagr/lognugget/test/support"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/entry"
+	"github.com/architagr/lognugget/v4/enum"
+	"github.com/architagr/lognugget/v4/test/support"
 )
 
 // Test_LogEntry_MinLevelGate is a table-driven test covering every

@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/architagr/lognugget/test/support"
+	"github.com/architagr/lognugget/v4/test/support"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

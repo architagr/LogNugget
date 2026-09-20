@@ -6,7 +6,7 @@ package config_test
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/config"
+	"github.com/architagr/lognugget/v4/config"
 )
 
 // Benchmark_AppendField_Int measures AppendField for an integer key-value pair

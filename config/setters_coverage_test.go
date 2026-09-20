@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	pipelineStage "github.com/architagr/lognugget/pipeline_stage"
+	pipelineStage "github.com/architagr/lognugget/v4/pipeline_stage"
 )
 
 // Test_SetOutput verifies SetOutput replaces the output writer and

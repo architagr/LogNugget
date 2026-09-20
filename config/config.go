@@ -24,8 +24,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/architagr/lognugget/encoder"
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/encoder"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 var (

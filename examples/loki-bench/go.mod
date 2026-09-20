@@ -3,7 +3,7 @@ module github.com/architagr/lognugget/examples/loki-bench
 go 1.25.0
 
 require (
-	github.com/architagr/lognugget v0.0.0
+	github.com/architagr/lognugget/v4 v4.0.0
 	github.com/rs/zerolog v1.33.0
 	go.opentelemetry.io/contrib/propagators/b3 v1.43.0
 	go.opentelemetry.io/otel v1.43.0
@@ -23,4 +23,4 @@ require (
 	golang.org/x/sys v0.42.0 // indirect
 )
 
-replace github.com/architagr/lognugget => ../..
+replace github.com/architagr/lognugget/v4 => ../..

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // reservedByDefault are the five core log keys that must always be treated as

@@ -7,7 +7,7 @@ package entry
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/config"
+	"github.com/architagr/lognugget/v4/config"
 )
 
 // TestInitLogEntry_WarmDispatchPool_OneAlloc verifies that when dispatchBufPool

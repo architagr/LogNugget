@@ -1,4 +1,4 @@
-module github.com/architagr/lognugget
+module github.com/architagr/lognugget/v4
 
 go 1.21
 

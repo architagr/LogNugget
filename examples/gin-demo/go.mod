@@ -3,7 +3,7 @@ module github.com/architagr/lognugget/examples/gin-demo
 go 1.21
 
 require (
-	github.com/architagr/lognugget v0.0.0
+	github.com/architagr/lognugget/v4 v4.0.0
 	github.com/gin-gonic/gin v1.10.1
 	github.com/rs/zerolog v1.34.0
 )
@@ -38,4 +38,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/architagr/lognugget => ../../
+replace github.com/architagr/lognugget/v4 => ../../

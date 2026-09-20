@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // Test_RingBuffer_PushPop_Sequential verifies FIFO ordering: push N events,
