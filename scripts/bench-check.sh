@@ -2,7 +2,7 @@
 # Performance gate for the sub-1µs SLO.
 # - Runs all package benchmarks.
 # - Fails if any benchmark mean exceeds the latency budget (default 1,000 ns/op = 1 µs).
-# - Fails on a statistically significant regression vs ./bench-baseline.txt (requires `benchstat`).
+# - Fails when a benchmark is more than BENCH_REGRESSION_TOL slower than ./bench-baseline.txt.
 #
 # Usage:
 #   ./scripts/bench-check.sh                    # run gate
@@ -12,18 +12,23 @@
 #   BENCH_THRESHOLD_NS   override the per-benchmark hard ceiling (ns/op). Default 1000.
 #   BENCH_PACKAGES       override the package selector. Default './...'.
 #   BENCH_EXCLUDE_RE     awk-style regex of benchmark names exempt from the hard ceiling.
-#                        These still run and appear in the benchstat regression check.
-#                        Default: AddSourceTrue|Timestamp_Direct
+#                        These still run and are still checked for regressions.
+#                        Default: AddSourceTrue|CtxParser
 #                          - AddSourceTrue: source capture calls runtime.Callers — inherently > 1 µs.
-#                          - Timestamp_Direct: single-goroutine path; async consumer can't cycle pool fast
-#                            enough, causing cold misses. Parallel benchmarks (51 B/op, ~300 ns) are the
-#                            representative SLO signal. Baseline also shows this bench at 1109 ns/op.
+#                            It is opt-in (SetAddSource) and off by default.
+#                          - CtxParser: the deprecated map[string]any context parser, kept only so the
+#                            cost of the legacy API stays visible next to SetContextFields. Holding a
+#                            deprecated path to the SLO of the supported one would only encourage
+#                            deleting the comparison.
+#                        Timestamp_Direct was exempt until the benchmarks were given a production-shaped
+#                        entry pool; it now runs at ~320 ns/op and is held to the ceiling like the rest.
 
 set -euo pipefail
 
 THRESHOLD_NS="${BENCH_THRESHOLD_NS:-1000}"
 PACKAGES="${BENCH_PACKAGES:-./...}"
-EXCLUDE_RE="${BENCH_EXCLUDE_RE:-AddSourceTrue|Timestamp_Direct}"
+REGRESSION_TOLERANCE="${BENCH_REGRESSION_TOL:-1.20}"
+EXCLUDE_RE="${BENCH_EXCLUDE_RE:-AddSourceTrue|CtxParser}"
 BASELINE_FILE="bench-baseline.txt"
 NEW_FILE="$(mktemp -t bench-new.XXXXXX)"
 trap 'rm -f "$NEW_FILE"' EXIT
@@ -74,17 +79,52 @@ if [ -n "$violations" ]; then
 fi
 
 # Regression check vs baseline.
+#
+# why not "benchstat; if it fails": benchstat exits 0 whether or not it found a
+# regression — it is a report, not a gate. Pinning the check to its exit code
+# meant the regression half of this script never failed anything. The means are
+# compared here instead, and benchstat is printed alongside for the detail.
 if [ -f "$BASELINE_FILE" ]; then
-  if ! command -v benchstat >/dev/null 2>&1; then
-    echo "bench-check: WARN — benchstat not installed; skipping regression compare." >&2
-    echo "             install with: go install golang.org/x/perf/cmd/benchstat@latest" >&2
-  else
+  if command -v benchstat >/dev/null 2>&1; then
     echo ""
     echo "bench-check: comparing against $BASELINE_FILE"
-    if ! benchstat "$BASELINE_FILE" "$NEW_FILE"; then
-      echo "bench-check: FAIL — benchstat reported regression(s)." >&2
-      exit 1
-    fi
+    benchstat "$BASELINE_FILE" "$NEW_FILE" || true
+  else
+    echo "bench-check: NOTE — benchstat not installed; the comparison below still runs." >&2
+    echo "             install it for per-benchmark detail:" >&2
+    echo "             go install golang.org/x/perf/cmd/benchstat@latest" >&2
+  fi
+
+  # Mean ns/op per benchmark, baseline vs new. The tolerance absorbs the noise
+  # of a shared CI runner; a real regression on this hot path is far larger.
+  regressions="$(awk -v tol="$REGRESSION_TOLERANCE" '
+    function mean(sum, n) { return n > 0 ? sum / n : 0 }
+    FNR == NR {
+      if ($1 ~ /^Benchmark/) { base_sum[$1] += $3; base_n[$1]++ }
+      next
+    }
+    $1 ~ /^Benchmark/ { new_sum[$1] += $3; new_n[$1]++ }
+    END {
+      for (name in new_sum) {
+        if (!(name in base_sum)) continue          # new benchmark: nothing to compare
+        b = mean(base_sum[name], base_n[name])
+        n = mean(new_sum[name], new_n[name])
+        if (b <= 0) continue
+        if (n > b * tol) {
+          printf "  %s: %.1f ns/op → %.1f ns/op (%+.1f%%)\n", name, b, n, (n / b - 1) * 100
+        }
+      }
+    }
+  ' "$BASELINE_FILE" "$NEW_FILE" | sort)"
+
+  if [ -n "$regressions" ]; then
+    echo "" >&2
+    echo "bench-check: FAIL — benchmarks regressed more than $(awk -v t="$REGRESSION_TOLERANCE" 'BEGIN{printf "%.0f%%", (t-1)*100}') vs $BASELINE_FILE:" >&2
+    printf "%s\n" "$regressions" >&2
+    echo "" >&2
+    echo "Either fix the regression, or — if the new cost is deliberate and justified —" >&2
+    echo "the Project Lead re-baselines with: ./scripts/bench-check.sh --update-baseline" >&2
+    exit 1
   fi
 else
   echo "bench-check: NOTE — no $BASELINE_FILE yet. Project Lead can establish one with --update-baseline." >&2

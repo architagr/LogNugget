@@ -9,6 +9,125 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Epic V4. Performance work, plus the correctness defects that re-measuring it
+uncovered. Not yet released.
+
+### Fixed
+
+- **Log records could be corrupted under concurrent load.** `dispatchEvent`
+  returned a record's buffer to `dispatchBufPool` as soon as every
+  pre-processor's `PreProcess` call returned, but the built-in collector kept
+  the borrowed slice in its bucket until that bucket flushed. A later log call
+  then drew the same backing array from the pool and overwrote a record that
+  had not been written yet; at eight goroutines the writer saw truncated JSON
+  and duplicated lines. The collector now copies each record into a pooled
+  arena (V4-C1).
+- **`Shutdown` dropped records still in the dispatch ring.** `PublishLog`
+  returns once the event is in the MPSC ring; `Shutdown` stopped the output
+  hooks without draining it, so a process that logged and exited immediately
+  lost its last records. Added [`config.FlushDispatch`](config/flush.go), which
+  blocks until the consumer has delivered every published event, and
+  `lognugget.Shutdown` now calls it before stopping hooks (V4-C2).
+- **Records could reach the writer out of order.** Each flush ran in its own
+  goroutine, so two batches could write concurrently. A single writer goroutine
+  per collector, fed by a bounded channel, now preserves publication order and
+  turns a slow sink into back-pressure rather than unbounded goroutines (V4-C3).
+- **`SetOutput`, `SetRate` and `SetLogBufferMaxSize` had no effect.** They wrote
+  to fields on `defaultConfig` that nothing read; the collector they describe
+  was built by `lognugget.init()` with hardcoded values. They now retune the
+  collector at runtime through `config.RegisterDefaultSink` (V4-C5).
+- **`Any` emitted invalid JSON for composite values.** The `KindAny` fallback
+  appended `fmt "%+v"` bytes raw, so `Any("retry", []string{"1s","2s"})` wrote
+  `"retry":[1s 2s]` and the whole record failed to parse. Composite values are
+  now written as JSON strings (V4-C6).
+- **Typed chain methods ignored reserved-key protection.** `Str("time", …)`
+  produced a record with two `"time"` members. Chain methods now prefix a
+  colliding key with `custom.`, as the variadic `model.LogAttr` path already
+  did.
+- **Every record was followed by a blank line.** The encoder terminates each
+  record with `"\n"` (ARCH-14) and the collector appended a second one.
+- **Static fields were rendered with `", "`** where every other member used
+  `","`.
+- **Tests panicked on Go 1.26.** `testing.AllocsPerRun` now refuses to run
+  inside a parallel test; three zero-alloc guards called it from one.
+- **`golangci-lint run` could not start** — `.golangci.yml` was still the v1
+  schema. Migrated to v2.
+- **`resetConfig` dropped events during an epoch switch**, clearing the old
+  pre-processors before the old consumer had finished with them.
+
+### Added
+
+- **`config.SetContextFields`** — typed per-request context fields via
+  `*config.CtxFields` (`Str`, `Int`, `Uint`, `Bool`, `Float64`). Replaces raw
+  `[]byte` handling for most callers; `SetContextFieldsAppender` remains for
+  power users and `SetContextFieldsParser` is the deprecated map-based path.
+- **`config.FlushDispatch(timeout)`** — drains the dispatch ring without
+  stopping hooks. Useful in tests and custom shutdown paths.
+- **`config.RegisterDefaultSink`** — lets a custom collector be retuned by the
+  package-level setters.
+- **`config.SafeFieldKey`** — the reserved-key check used by the chain methods.
+- **`entry.LogEntry.Err` and `.Any`** chain methods (V4-P5).
+- **Dispatch buffer pool** (`config.GetDispatchBuf` / `ReturnDispatchBuf`),
+  removing a `make()` per call on the hot path (V4-P2).
+- **Single-slab `LogEntry`** — `pendingBuf` is backed by an inline 256 B array,
+  so a cold pool miss costs one allocation instead of three (V4-P3).
+- **[`examples/cookbook`](examples/cookbook)** — six runnable programs:
+  quickstart, fields, context, configuration, hooks, tuning.
+- **[`examples/loki-bench`](examples/loki-bench)** — two HTTP servers, a k6
+  script and a Loki + Grafana compose file, for measuring handler latency
+  against a real sink (V4-BENCH).
+- **Benchmark isolation harness.** Every benchmark now installs a clean
+  configuration and tears it down. Previously `Benchmark_Log` left the legacy
+  map context parser installed, and every benchmark that ran after it in the
+  same binary silently paid for it — which is how the published "2 allocs,
+  ~196 ns/op" hot-path figure was produced.
+- **Performance gate in CI** (`.github/workflows/bench.yml`), including a job
+  that builds and vets every example module. The gate's regression check is now
+  real: it compares per-benchmark means against `bench-baseline.txt` and fails
+  past a 20% tolerance. Previously it keyed off `benchstat`'s exit code, which
+  is 0 whether or not anything regressed.
+
+### Changed
+
+- **BREAKING — one `Write` per flush batch.** An `io.Writer` registered through
+  `SetOutput` now receives the whole newline-delimited batch in a single
+  `Write` instead of one call per record. Line-oriented sinks are unaffected; a
+  sink that treated each `Write` as exactly one record must split on `"\n"`.
+  Hooks registered on the pre-processor stage still receive one call per
+  record. This is what makes `SetLogBufferMaxSize` observable: 500 records cost
+  500, 25 or 1 writes at bucket sizes 1, 20 and 500.
+- **Deprecated `config.RegisterHook` / `config.DeRegisterHook`.** They mutate a
+  registry the dispatch path never reads, so a hook registered there has never
+  received an event. Use
+  `pipelineStage.EventPreProcessorObj.RegisterHook(level, hook)`.
+- **Deprecated `config.SetContextFieldsParser`** in favour of
+  `SetContextFields` — ~1,108 ns/op versus ~511 ns/op at ten fields.
+- CI now tests Go 1.22 through 1.26.
+
+### Performance
+
+Apple M1 Pro, `GOMAXPROCS=8`, Go 1.26, isolated benchmarks:
+
+| Path | ns/op | B/op | allocs/op |
+|------|-------|------|-----------|
+| Parallel, no context fields | ~329 | ~33 | 1 |
+| Parallel, 10 typed context fields | ~317 | ~42 | 1 |
+| Serial, typed fields | ~399 | ~40 | 1 |
+| Filtered (below min level), serial | ~14 | 0 | 0 |
+| Filtered, parallel | ~3.4 | 0 | 0 |
+
+> These are **not** comparable to the V3 figures published in 3.0.0. Those were
+> measured with a 1M-entry pool and with leaked global state from earlier
+> benchmarks in the same binary. The V4 numbers come from a clean configuration
+> and a `GOMAXPROCS × 64` pool. Allocations per record dropped from 2 to 1.
+
+Against other loggers (`examples/bench`, 10 context fields, `io.Discard`):
+zerolog ~92 ns/op parallel, LogNugget ~347 ns/op, logrus ~6,155 ns/op. With a
+real sink — Loki over HTTP at 10k rps — LogNugget sustains 6,016 rps at p95
+417 ms with no errors, against zerolog's 1,094 rps at p95 4.72 s with 0.62%
+errors.
+
+---
 ---
 
 ## [3.0.1] - 2026-05-23
