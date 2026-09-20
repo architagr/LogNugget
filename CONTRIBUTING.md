@@ -11,7 +11,7 @@ Thank you for contributing! Please read this guide before opening issues or pull
 
 1. **Fork** the repository and clone your fork locally.
 2. **Branch** off `develop` using the naming convention below.
-3. **Implement** with TDD — write tests first, then make them pass.
+3. **Implement** with TDD: write tests first, then make them pass.
 4. **Open a draft PR** as soon as local tests pass; this is the surface QA reviews against.
 5. **Address QA** comments (up to 3 cycles); unresolved threads are arbitrated by the Project Lead.
 6. **Mark ready** only after all gates below are green.
@@ -45,7 +45,7 @@ Types: `feat`, `fix`, `docs`, `chore`, `perf`, `refactor`, `test`.
 ### Authorship
 
 Commits are authored by the person who opened the PR. Do not add trailers that
-credit an AI assistant for the work — no `Co-Authored-By:` line naming a model,
+credit an AI assistant for the work. No `Co-Authored-By:` line naming a model,
 no "Generated with ..." footer, no robot emoji.
 
 A `commit-msg` hook enforces this. Enable it once per clone:

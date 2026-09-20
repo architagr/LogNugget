@@ -2,7 +2,7 @@
 
 [![codecov](https://codecov.io/gh/architagr/LogNugget/branch/main/graph/badge.svg?token=9VPDuFbSyQ)](https://codecov.io/gh/architagr/LogNugget)
 
-**Bite-sized, context-aware logging for Go** — because every request deserves its own story.
+**Bite-sized, context-aware logging for Go.** Every request deserves its own story.
 
 LogNugget is a structured logging library for Go with an asynchronous pipeline: a log call
 renders the record and hands it to a lock-free ring buffer, and a background goroutine does the
@@ -32,7 +32,7 @@ func main() {
 {"time":"2026-09-20T10:21:37Z","level":"INFO","message":"request handled","method":"GET","status":200}
 ```
 
-Importing `lognugget` is the whole setup — no `NewLogger()`, no handler wiring.
+Importing `lognugget` is the whole setup. No `NewLogger()`, no handler wiring.
 
 ---
 
@@ -77,7 +77,7 @@ cd examples/cookbook && go run ./01-quickstart
 | Example | Answers |
 |---------|---------|
 | [`01-quickstart`](examples/cookbook/01-quickstart) | What is the least I have to write? |
-| [`02-fields`](examples/cookbook/02-fields) | How do I attach data — and what if I have none? |
+| [`02-fields`](examples/cookbook/02-fields) | How do I attach data, and what if I have none? |
 | [`03-context`](examples/cookbook/03-context) | How do trace IDs and per-request fields get in? |
 | [`04-configuration`](examples/cookbook/04-configuration) | What can I configure, and what does each knob change? |
 | [`05-hooks`](examples/cookbook/05-hooks) | How do I send records to more than one place? |
@@ -92,7 +92,7 @@ Larger examples: [`gin-demo`](examples/gin-demo) (HTTP middleware),
 
 ## Fields
 
-Typed chain methods write straight into the record buffer — no `map[string]any`, no interface
+Typed chain methods write straight into the record buffer. No `map[string]any`, no interface
 boxing:
 
 | Method | Signature | Notes |
@@ -127,7 +127,7 @@ A field whose key collides with a core key (`time`, `level`, `message`, `error`,
 written as `custom.<key>` rather than emitted twice.
 
 Levels: `Debug`, `Info`, `Warn` take `(ctx, message, fields...)`; `Error`, `Fatal`, `Panic` take
-the error first — `(ctx, err, message, fields...)`.
+the error first: `(ctx, err, message, fields...)`.
 
 ---
 
@@ -203,7 +203,7 @@ Records fan out to every matching hook, so an error reaches both the `LevelUnSet
 replaces it. Delivery order between hooks at the same level is undefined.
 
 **The `[]byte` a hook receives is borrowed.** The dispatcher recycles that buffer as soon as the
-call returns — copy the bytes if you keep them.
+call returns, so copy the bytes if you keep them.
 
 ---
 
@@ -235,8 +235,8 @@ because the callers then contend on the collector instead. Use it only with a fa
 where single-call latency matters; with a network sink every logging goroutine blocks on that
 sink, which is the failure mode async exists to avoid.
 
-`lognugget.Shutdown()` drains both asynchronous stages — the dispatch ring, then the collector's
-buffer — and blocks until the last byte is written. Call it before exit: with a 5 s rate, even a
+`lognugget.Shutdown()` drains both asynchronous stages, the dispatch ring and then the collector's
+buffer, and blocks until the last byte is written. Call it before exit: with a 5 s rate, even a
 clean exit can otherwise drop five seconds of logs. `config.FlushDispatch(timeout)` drains only
 the first stage, for tests and custom shutdown paths.
 
@@ -261,7 +261,7 @@ caller → entry.LogEntry.Info(ctx, msg, fields...)
            │ copies the record into a pooled arena
            │ bucket full or ticker fires → one batch to the writer goroutine
            ↓
-        io.Writer (os.Stdout or your sink) — one Write per batch
+        io.Writer (os.Stdout or your sink), one Write per batch
 ```
 
 Everything from the ring buffer rightwards is off the caller's goroutine.
@@ -284,7 +284,7 @@ call-site attributes. Output is `io.Discard`.
 | Logger | ns/op | B/op | allocs/op | Notes |
 |--------|-------|------|-----------|-------|
 | **zerolog** | **~92** | **0** | **0** | Synchronous, zero-alloc |
-| **LogNugget** | **~347** | **~36** | **1** | Asynchronous — caller-side cost only |
+| **LogNugget** | **~347** | **~36** | **1** | Asynchronous, caller-side cost only |
 | logrus | ~6,155 | ~4,860 | 58 | Synchronous; global mutex serialises under load |
 
 **Serial (1 goroutine)**
@@ -297,8 +297,8 @@ call-site attributes. Output is `io.Discard`.
 
 LogNugget's numbers are caller-side: encoding framing and the write happen on other goroutines,
 which is why the parallel figure improves so much more than the serial one. zerolog's and
-logrus's numbers include their full write. Under a sink with real latency the ranking inverts —
-see [Why async?](#why-async) above.
+logrus's numbers include their full write. Under a sink with real latency the ranking inverts.
+See [Why async?](#why-async) above.
 
 ### Library hot path
 
@@ -330,20 +330,24 @@ context parser.
 
 The 1 µs figure is defined on the reference machine above. ns/op does not travel between
 machines: GitHub's 4-core runners measure this hot path 2-3x slower, so CI runs the same script
-with a scaled ceiling (2.5 µs) and no baseline comparison — enough to catch an order-of-magnitude
-regression, not a claim about absolute speed. The strict run is local, and required before a
+with a scaled ceiling (2.5 µs) and no baseline comparison. That catches an order-of-magnitude
+regression without claiming anything about absolute speed. The strict run is local, and required before a
 release.
 
 ---
 
 ## Key properties
 
-- **Non-blocking** — the caller returns after a ring-buffer push; encoding and IO happen elsewhere.
-- **Low GC** — pooled `LogEntry` objects, pooled dispatch buffers, pooled flush arenas.
-- **Ordered** — a single writer goroutine per collector, so records reach the sink in publication order.
-- **Graceful shutdown** — `Shutdown()` drains the dispatch ring and then the collector.
-- **Fan-out** — multiple hooks per level, each with its own flush policy.
-- **RFC 8259 JSON** — every string value escaped per spec; no injection through log fields.
+The caller returns after a ring-buffer push, so encoding and IO never happen on its goroutine.
+`LogEntry` objects, dispatch buffers and flush arenas are all pooled, which keeps steady-state
+logging at one allocation per record.
+
+Each collector writes from a single goroutine, so records reach the sink in the order they were
+published. `Shutdown()` drains the dispatch ring and then the collector, and blocks until the last
+byte is out.
+
+Hooks fan out per level, each with its own flush policy. Every string value is escaped per RFC 8259,
+so a crafted field value cannot inject a second record.
 
 ---
 
