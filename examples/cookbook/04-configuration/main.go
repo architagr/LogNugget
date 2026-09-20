@@ -13,10 +13,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/architagr/lognugget/examples/cookbook/internal/demo"
 	"github.com/architagr/lognugget/v4/config"
 	"github.com/architagr/lognugget/v4/entry"
 	"github.com/architagr/lognugget/v4/enum"
-	"github.com/architagr/lognugget/examples/cookbook/internal/demo"
 	"github.com/architagr/lognugget/v4/lognugget"
 )
 
