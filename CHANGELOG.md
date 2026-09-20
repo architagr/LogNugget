@@ -9,8 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [4.0.0] - 2026-09-20
+
 Epic V4. Performance work, plus the correctness defects that re-measuring it
-uncovered. Not yet released.
+uncovered.
+
+### Migrating from 3.x
+
+- An `io.Writer` registered with `config.SetOutput` now receives one `Write`
+  per flush batch rather than one per record. Records remain newline-
+  delimited, so a line-oriented sink needs no change; a sink that treated
+  each `Write` as exactly one record must split on `"\n"`.
+- `config.RegisterHook` / `DeRegisterHook` are deprecated and have never had
+  any effect. Register hooks with
+  `pipelineStage.EventPreProcessorObj.RegisterHook(level, hook)`.
+- `config.SetContextFieldsParser` is deprecated in favour of
+  `config.SetContextFields`.
+- `config.SetOutput`, `SetRate` and `SetLogBufferMaxSize` now do what they
+  say. Code that called them expecting no effect will see behaviour change.
 
 ### Fixed
 
@@ -290,7 +308,8 @@ All other v1 call sites are source-compatible with v2.
 
 ---
 
-[Unreleased]: https://github.com/architagr/LogNugget/compare/v3.0.1...HEAD
+[Unreleased]: https://github.com/architagr/LogNugget/compare/v4.0.0...HEAD
+[4.0.0]: https://github.com/architagr/LogNugget/compare/v3.0.1...v4.0.0
 [3.0.1]: https://github.com/architagr/LogNugget/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/architagr/LogNugget/compare/v2.0.3...v3.0.0
 [2.0.3]: https://github.com/architagr/LogNugget/compare/v2.0.2...v2.0.3
