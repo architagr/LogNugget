@@ -319,11 +319,17 @@ API, measured the same way.
 
 ### The gate
 
-`./scripts/bench-check.sh` fails if any benchmark mean exceeds 1 µs, or if any benchmark is more
-than 25% slower than `bench-baseline.txt` (and at least 50 ns slower in absolute terms, so noisy
-micro-benchmarks do not gate). It runs on every PR. Two benchmarks are exempt from
-the ceiling and documented in the script: source capture (`runtime.Callers`, opt-in and off by
-default) and the deprecated map context parser.
+`./scripts/bench-check.sh` fails if any benchmark's mean exceeds 1 µs, or if any benchmark is
+more than 25% slower than `bench-baseline.txt` (and at least 50 ns slower in absolute terms, so
+noisy micro-benchmarks do not gate). Two benchmarks are exempt from the ceiling and documented in
+the script: source capture (`runtime.Callers`, opt-in and off by default) and the deprecated map
+context parser.
+
+The 1 µs figure is defined on the reference machine above. ns/op does not travel between
+machines: GitHub's 4-core runners measure this hot path 2-3x slower, so CI runs the same script
+with a scaled ceiling (2.5 µs) and no baseline comparison — enough to catch an order-of-magnitude
+regression, not a claim about absolute speed. The strict run is local, and required before a
+release.
 
 ---
 

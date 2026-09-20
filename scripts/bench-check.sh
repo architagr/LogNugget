@@ -26,6 +26,11 @@
 #   BENCH_REGRESSION_TOL how much slower than the baseline a benchmark may get before the gate
 #                        fails, as a multiplier. Default 1.25 (25%) — enough to absorb runner noise
 #                        and thermal drift, far below a real regression on this hot path.
+#   BENCH_SKIP_REGRESSION set to 1 to run only the ceiling check. why: bench-baseline.txt is
+#                        captured on one machine, and ns/op is not portable between machines — a
+#                        4-core CI runner measures this hot path 2-3x slower than the reference
+#                        laptop. CI sets this and raises the ceiling instead; the baseline
+#                        comparison is meaningful only against a baseline from the same machine.
 #   BENCH_REGRESSION_MIN_NS  a regression must also be at least this many ns/op in absolute terms.
 #                        Default 50. why: a contended micro-benchmark like RingBuffer_Push swings
 #                        94 → 133 ns between runs — 42%, and 39 ns of a 1,000 ns budget. Without an
@@ -43,6 +48,7 @@ THRESHOLD_NS="${BENCH_THRESHOLD_NS:-1000}"
 PACKAGES="${BENCH_PACKAGES:-./...}"
 REGRESSION_TOLERANCE="${BENCH_REGRESSION_TOL:-1.25}"
 REGRESSION_MIN_NS="${BENCH_REGRESSION_MIN_NS:-50}"
+SKIP_REGRESSION="${BENCH_SKIP_REGRESSION:-0}"
 EXCLUDE_RE="${BENCH_EXCLUDE_RE:-AddSourceTrue|CtxParser}"
 BASELINE_FILE="bench-baseline.txt"
 NEW_FILE="$(mktemp -t bench-new.XXXXXX)"
@@ -107,11 +113,16 @@ fi
 
 # Regression check vs baseline.
 #
+# Skipped when BENCH_SKIP_REGRESSION=1 — see the note on machine portability above.
+#
 # why not "benchstat; if it fails": benchstat exits 0 whether or not it found a
 # regression — it is a report, not a gate. Pinning the check to its exit code
 # meant the regression half of this script never failed anything. The means are
 # compared here instead, and benchstat is printed alongside for the detail.
-if [ -f "$BASELINE_FILE" ]; then
+if [ "$SKIP_REGRESSION" = "1" ]; then
+  echo ""
+  echo "bench-check: regression comparison skipped (BENCH_SKIP_REGRESSION=1); ceiling checked at ${THRESHOLD_NS} ns/op"
+elif [ -f "$BASELINE_FILE" ]; then
   if command -v benchstat >/dev/null 2>&1; then
     echo ""
     echo "bench-check: comparing against $BASELINE_FILE"

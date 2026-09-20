@@ -20,20 +20,26 @@ import (
 	"github.com/architagr/lognugget/test/support"
 )
 
-// drainTimestampRec polls spy.Records() until at least one record arrives,
-// returning the first record's raw bytes. Fails after 500 goroutine-yield
-// iterations — matching the pattern used in levels_test.go.
+// drainTimestampRec waits for the asynchronous pipeline to deliver, then
+// returns the first record the spy received.
+//
+// why not a fixed spin: this used to yield to the scheduler 500 times and give
+// up, which was enough on a developer laptop and not enough on a loaded CI
+// runner — it failed on ubuntu/Go 1.26 while the same code passed elsewhere.
+// FlushDispatch waits for the dispatcher itself.
 func drainTimestampRec(t *testing.T, spy *support.FakePreProc) []byte {
 	t.Helper()
-	for i := 0; i < 500; i++ {
-		recs := spy.Records()
-		if len(recs) > 0 {
+
+	if !config.FlushDispatch(5 * time.Second) {
+		t.Fatal("dispatcher did not drain within 5s")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if recs := spy.Records(); len(recs) > 0 {
 			return recs[0].Data
 		}
-		// Yield to the scheduler without importing time.
-		done := make(chan struct{})
-		go func() { close(done) }()
-		<-done
+		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("timed out waiting for log record; spy was never invoked — check config.InitPreProcessors")
 	return nil
