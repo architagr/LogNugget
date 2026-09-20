@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/architagr/lognugget/enum"
-	"github.com/architagr/lognugget/model"
+	"github.com/architagr/lognugget/v4/enum"
+	"github.com/architagr/lognugget/v4/model"
 )
 
 // AppendQuotedString appends s to dst as an RFC 8259 JSON string (including the

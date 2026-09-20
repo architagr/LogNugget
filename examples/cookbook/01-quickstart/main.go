@@ -7,8 +7,8 @@ package main
 import (
 	"context"
 
-	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/lognugget"
+	"github.com/architagr/lognugget/v4/entry"
+	"github.com/architagr/lognugget/v4/lognugget"
 )
 
 func main() {

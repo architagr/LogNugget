@@ -11,7 +11,7 @@ package pipelineStage
 import (
 	"sync"
 
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // EventPreProcessorObj is the package-level singleton event fan-out observer.

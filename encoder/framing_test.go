@@ -3,7 +3,7 @@ package encoder_test
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/encoder"
+	"github.com/architagr/lognugget/v4/encoder"
 	"github.com/stretchr/testify/assert"
 )
 

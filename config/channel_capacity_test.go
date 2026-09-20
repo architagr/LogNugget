@@ -7,7 +7,7 @@ import (
 	"log"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
+	"github.com/architagr/lognugget/v4/config"
 	"github.com/stretchr/testify/assert"
 )
 

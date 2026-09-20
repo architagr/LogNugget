@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/architagr/lognugget/entry"
+	"github.com/architagr/lognugget/v4/entry"
 )
 
 // BenchmarkLogEntry_InlineFraming_10 measures the hot path after V2-P4 inline

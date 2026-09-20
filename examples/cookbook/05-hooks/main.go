@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/enum"
 	"github.com/architagr/lognugget/examples/cookbook/internal/demo"
-	pipelineStage "github.com/architagr/lognugget/pipeline_stage"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/entry"
+	"github.com/architagr/lognugget/v4/enum"
+	pipelineStage "github.com/architagr/lognugget/v4/pipeline_stage"
 )
 
 // countingHook is a minimal custom hook: it implements the two methods the

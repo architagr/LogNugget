@@ -28,8 +28,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/encoder"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/encoder"
 )
 
 // FuzzJSONEncoder verifies that JSONEncoder.Append always produces valid JSON

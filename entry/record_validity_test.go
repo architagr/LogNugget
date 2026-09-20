@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/model"
+	"github.com/architagr/lognugget/v4/entry"
+	"github.com/architagr/lognugget/v4/model"
 )
 
 // Test_Record_AnyCompositeValueIsValidJSON asserts that Any() emits parseable

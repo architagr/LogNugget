@@ -14,8 +14,8 @@ package main
 import (
     "context"
 
-    "github.com/architagr/lognugget/entry"
-    "github.com/architagr/lognugget/lognugget"
+    "github.com/architagr/lognugget/v4/entry"
+    "github.com/architagr/lognugget/v4/lognugget"
 )
 
 func main() {
@@ -56,8 +56,11 @@ The handler's cost is the ring-buffer push. Whether Loki answers in 1 ms or 10 m
 ## Install
 
 ```bash
-go get github.com/architagr/lognugget
+go get github.com/architagr/lognugget/v4
 ```
+
+The `/v4` suffix is part of the module path, so imports carry it too:
+`github.com/architagr/lognugget/v4/entry`.
 
 Go 1.21+. The library itself depends only on the standard library (testify is a test dependency).
 

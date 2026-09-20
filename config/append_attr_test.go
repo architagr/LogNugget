@@ -6,8 +6,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/model"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/model"
 )
 
 // Test_AppendAttr_Str verifies that a KindStr attr is serialised to a quoted

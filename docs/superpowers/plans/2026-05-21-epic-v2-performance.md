@@ -55,8 +55,8 @@ package config_test
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 func Test_GetHotSnapshot_ReflectsCurrentConfig(t *testing.T) {
@@ -392,7 +392,7 @@ package model_test
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/model"
+	"github.com/architagr/lognugget/v4/model"
 )
 
 func Test_Str_SetsKindStr(t *testing.T) {
@@ -555,8 +555,8 @@ package config_test
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/model"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/model"
 )
 
 func Test_AppendAttr_Str(t *testing.T) {
@@ -682,7 +682,7 @@ func AppendAttr(dst []byte, attr model.LogAttr) []byte {
 }
 ```
 
-Add `"github.com/architagr/lognugget/model"` to imports in `config/parse_field.go`.
+Add `"github.com/architagr/lognugget/v4/model"` to imports in `config/parse_field.go`.
 
 ### Step 2.9: Run AppendAttr tests
 
@@ -802,7 +802,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
+	"github.com/architagr/lognugget/v4/config"
 )
 
 func Test_SetContextFieldsAppender_AppenderIsCalled(t *testing.T) {
@@ -1043,7 +1043,7 @@ package encoder_test
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/encoder"
+	"github.com/architagr/lognugget/v4/encoder"
 )
 
 func Test_JSONEncoder_OpenCloseBytes(t *testing.T) {
@@ -1249,7 +1249,7 @@ package config_test
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/config"
+	"github.com/architagr/lognugget/v4/config"
 )
 
 func Test_DefaultLogBuffer_IsAtLeast1000(t *testing.T) {

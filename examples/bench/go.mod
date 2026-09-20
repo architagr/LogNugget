@@ -3,7 +3,7 @@ module github.com/architagr/lognugget/examples/bench
 go 1.21
 
 require (
-	github.com/architagr/lognugget v0.0.0
+	github.com/architagr/lognugget/v4 v4.0.0
 	github.com/rs/zerolog v1.34.0
 	github.com/sirupsen/logrus v1.9.3
 )
@@ -14,4 +14,4 @@ require (
 	golang.org/x/sys v0.20.0 // indirect
 )
 
-replace github.com/architagr/lognugget => ../../
+replace github.com/architagr/lognugget/v4 => ../../

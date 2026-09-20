@@ -3,7 +3,7 @@ package config
 import (
 	"sync/atomic"
 
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // syncModeAtomic gates the synchronous dispatch path. Read on every log call,

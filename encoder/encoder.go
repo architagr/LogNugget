@@ -9,7 +9,7 @@ package encoder
 import (
 	"errors"
 
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // ErrUnknownEncoder is returned by DefaultEncoderFactoryE when the requested

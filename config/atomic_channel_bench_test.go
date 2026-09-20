@@ -9,7 +9,7 @@ package config
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // BenchmarkPublishLog measures the end-to-end hot-path cost of PublishLog after

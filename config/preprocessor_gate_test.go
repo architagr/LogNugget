@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/test/support"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/test/support"
 )
 
 // Test_HasPreProcessors_FalseOnEmpty asserts that HasEventPreProcessors returns

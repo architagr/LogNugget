@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/enum"
-	pipelineStage "github.com/architagr/lognugget/pipeline_stage"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/enum"
+	pipelineStage "github.com/architagr/lognugget/v4/pipeline_stage"
 )
 
 // safeBuffer is a thread-safe io.Writer / string reader backed by bytes.Buffer.

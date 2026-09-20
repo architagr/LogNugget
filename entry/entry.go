@@ -4,10 +4,10 @@ import (
 	"context"
 	"runtime"
 
-	"github.com/architagr/lognugget/config"
-	customTime "github.com/architagr/lognugget/custom_time"
-	"github.com/architagr/lognugget/enum"
-	"github.com/architagr/lognugget/model"
+	"github.com/architagr/lognugget/v4/config"
+	customTime "github.com/architagr/lognugget/v4/custom_time"
+	"github.com/architagr/lognugget/v4/enum"
+	"github.com/architagr/lognugget/v4/model"
 )
 
 // LogEntry is a single structured-log event in flight. Callers obtain a

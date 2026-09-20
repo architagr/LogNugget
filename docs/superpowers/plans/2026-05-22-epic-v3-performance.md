@@ -55,7 +55,7 @@ package config_test
 
 import (
     "testing"
-    pipelineStage "github.com/architagr/lognugget/pipeline_stage"
+    pipelineStage "github.com/architagr/lognugget/v4/pipeline_stage"
 )
 
 func Test_HasPreProcessors_TrueAfterInit(t *testing.T) {
@@ -200,8 +200,8 @@ import (
     "testing"
     "time"
 
-    customTime "github.com/architagr/lognugget/custom_time"
-    "github.com/architagr/lognugget/config"
+    customTime "github.com/architagr/lognugget/v4/custom_time"
+    "github.com/architagr/lognugget/v4/config"
 )
 
 func BenchmarkTimestamp_ViaFormat(b *testing.B) {
@@ -455,7 +455,7 @@ package config_test
 
 import (
     "testing"
-    "github.com/architagr/lognugget/enum"
+    "github.com/architagr/lognugget/v4/enum"
 )
 
 func Test_AppendQuotedLevel_AllNamedLevels(t *testing.T) {
@@ -563,10 +563,10 @@ import (
     "testing"
     "time"
 
-    "github.com/architagr/lognugget/config"
-    "github.com/architagr/lognugget/entry"
-    "github.com/architagr/lognugget/enum"
-    pipelineStage "github.com/architagr/lognugget/pipeline_stage"
+    "github.com/architagr/lognugget/v4/config"
+    "github.com/architagr/lognugget/v4/entry"
+    "github.com/architagr/lognugget/v4/enum"
+    pipelineStage "github.com/architagr/lognugget/v4/pipeline_stage"
 )
 
 type bufSizeWriter struct{}
@@ -661,7 +661,7 @@ package config_test
 import (
     "sync"
     "testing"
-    "github.com/architagr/lognugget/enum"
+    "github.com/architagr/lognugget/v4/enum"
 )
 
 func Test_GetHotSnapshot_NilSafe(t *testing.T) {
@@ -880,10 +880,10 @@ import (
     "testing"
     "time"
 
-    "github.com/architagr/lognugget/config"
-    "github.com/architagr/lognugget/entry"
-    "github.com/architagr/lognugget/enum"
-    pipelineStage "github.com/architagr/lognugget/pipeline_stage"
+    "github.com/architagr/lognugget/v4/config"
+    "github.com/architagr/lognugget/v4/entry"
+    "github.com/architagr/lognugget/v4/enum"
+    pipelineStage "github.com/architagr/lognugget/v4/pipeline_stage"
     "go.opentelemetry.io/otel/trace"
 )
 
@@ -935,10 +935,10 @@ import (
     "fmt"
     "os"
 
-    "github.com/architagr/lognugget/config"
-    "github.com/architagr/lognugget/entry"
-    "github.com/architagr/lognugget/enum"
-    pipelineStage "github.com/architagr/lognugget/pipeline_stage"
+    "github.com/architagr/lognugget/v4/config"
+    "github.com/architagr/lognugget/v4/entry"
+    "github.com/architagr/lognugget/v4/enum"
+    pipelineStage "github.com/architagr/lognugget/v4/pipeline_stage"
     "go.opentelemetry.io/otel/trace"
     "time"
 )
@@ -986,12 +986,12 @@ module github.com/architagr/lognugget/examples/otel-appender
 go 1.21
 
 require (
-    github.com/architagr/lognugget v0.0.0
+    github.com/architagr/lognugget/v4 v0.0.0
     go.opentelemetry.io/otel v1.24.0
     go.opentelemetry.io/otel/trace v1.24.0
 )
 
-replace github.com/architagr/lognugget => ../../
+replace github.com/architagr/lognugget/v4 => ../../
 ```
 
 - [ ] **Step 7.6: Run bench — verify ≤ 1 alloc**
@@ -1045,7 +1045,7 @@ package config_test
 import (
     "sync"
     "testing"
-    "github.com/architagr/lognugget/enum"
+    "github.com/architagr/lognugget/v4/enum"
 )
 
 func Test_PublishLog_Race(t *testing.T) {
@@ -1236,7 +1236,7 @@ package config
 import (
     "sync"
     "testing"
-    "github.com/architagr/lognugget/enum"
+    "github.com/architagr/lognugget/v4/enum"
 )
 
 func Test_RingBuffer_PushPop_Sequential(t *testing.T) {
@@ -1334,7 +1334,7 @@ package config
 import (
     "runtime"
     "testing"
-    "github.com/architagr/lognugget/enum"
+    "github.com/architagr/lognugget/v4/enum"
 )
 
 func BenchmarkRingBuffer_Push(b *testing.B) {

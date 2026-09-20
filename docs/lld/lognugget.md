@@ -31,7 +31,7 @@ LogNugget v1 library. Hot path = `*LogEntry.Log` returning to caller. PRD ยง1, ย
 | `examples/` (NEW) | Relocated `logger.go` (Gin demo). NF12 isolation. | Sample app | n/a |
 | `test/benchmark` | `Benchmark_Log` + `Benchmark_LogParallel` (NEW). | Bench harness | ~150 |
 
-Module root stays `github.com/architagr/lognugget`. Library `go.mod` retains stdlib-only runtime deps. Demo deps move to `examples/go.mod` or `// +build ignore` (PRD NF12).
+Module root stays `github.com/architagr/lognugget/v4`. Library `go.mod` retains stdlib-only runtime deps. Demo deps move to `examples/go.mod` or `// +build ignore` (PRD NF12).
 
 ---
 
