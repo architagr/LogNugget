@@ -4,6 +4,8 @@ package support
 
 import (
 	"sync"
+	"testing"
+	"time"
 
 	"github.com/architagr/lognugget/config"
 	"github.com/architagr/lognugget/enum"
@@ -144,4 +146,55 @@ func (p *FakePreProc) Records() []FakePreProcRecord {
 	out := make([]FakePreProcRecord, len(p.recs))
 	copy(out, p.recs)
 	return out
+}
+
+// DefaultDrainTimeout bounds how long WaitForRecords and RecordsWithin wait
+// for the asynchronous pipeline to deliver.
+const DefaultDrainTimeout = 5 * time.Second
+
+// settleWindow is how long RecordsWithin keeps looking after the dispatcher
+// has drained. A record that has been dispatched still has to travel through
+// the hook chain, which is fast but not instantaneous.
+const settleWindow = 250 * time.Millisecond
+
+// WaitForRecords blocks until spy has received at least n records, and fails
+// the test if that has not happened within timeout. Pass 0 for the default.
+//
+// why this exists: every package used to carry its own copy of a drain helper
+// that yielded to the scheduler a fixed 500 times and then gave up. That was
+// enough on a developer laptop and not enough on a loaded CI runner, which is
+// how the same unchanged code failed on one platform and passed on the rest.
+// This waits for the dispatcher itself (config.FlushDispatch) and then polls
+// against a real deadline.
+func WaitForRecords(tb testing.TB, spy *FakePreProc, n int, timeout time.Duration) []FakePreProcRecord {
+	tb.Helper()
+
+	recs, ok := RecordsWithin(spy, n, timeout)
+	if !ok {
+		tb.Fatalf("timed out waiting for %d record(s) from spy %q; got %d — check config.InitPreProcessors",
+			n, spy.Name(), len(recs))
+	}
+	return recs
+}
+
+// RecordsWithin waits for spy to receive at least n records and reports
+// whether it did. Unlike WaitForRecords it does not fail the test, so it can
+// also express the negative case: that nothing is delivered.
+func RecordsWithin(spy *FakePreProc, n int, timeout time.Duration) ([]FakePreProcRecord, bool) {
+	if timeout <= 0 {
+		timeout = DefaultDrainTimeout
+	}
+
+	config.FlushDispatch(timeout)
+
+	deadline := time.Now().Add(settleWindow)
+	for {
+		if recs := spy.Records(); len(recs) >= n {
+			return recs, true
+		}
+		if time.Now().After(deadline) {
+			return spy.Records(), false
+		}
+		time.Sleep(time.Millisecond)
+	}
 }

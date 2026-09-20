@@ -21,19 +21,10 @@ import (
 	"github.com/architagr/lognugget/test/support"
 )
 
-// drainN spins until spy has at least n records, then returns them.
+// drainN waits until spy has at least n records, then returns the first n.
 func drainN(t *testing.T, spy *support.FakePreProc, n int) []support.FakePreProcRecord {
 	t.Helper()
-	for i := 0; i < 2000; i++ {
-		if recs := spy.Records(); len(recs) >= n {
-			return recs[:n]
-		}
-		done := make(chan struct{})
-		go func() { close(done) }()
-		<-done
-	}
-	t.Fatalf("timed out waiting for %d log records", n)
-	return nil
+	return support.WaitForRecords(t, spy, n, 0)[:n]
 }
 
 // resetParser resets the singleton to debug/JSON defaults and registers spy

@@ -55,18 +55,10 @@ func Test_LogEntry_MinLevelGate(t *testing.T) {
 
 				entry.NewLogEntry().Log(eventLevel, context.Background(), "gate-test", nil)
 
-				// Drain: give the async dispatch goroutine time to deliver.
-				// Use the same busy-loop strategy as drainSpy in levels_test.go.
-				var gotCalled bool
-				for i := 0; i < 500; i++ {
-					if len(spy.Records()) > 0 {
-						gotCalled = true
-						break
-					}
-					done := make(chan struct{})
-					go func() { close(done) }()
-					<-done
-				}
+				// RecordsWithin rather than WaitForRecords: half these cases
+				// assert that nothing is delivered, so a timeout is an
+				// expected outcome here, not a test failure.
+				_, gotCalled := support.RecordsWithin(spy, 1, 0)
 
 				if gotCalled != wantCalled {
 					t.Errorf("eventLevel=%s minLevel=%s: hook called=%v, want %v",

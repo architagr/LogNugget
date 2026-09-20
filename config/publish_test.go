@@ -47,24 +47,11 @@ import (
 // drainPublishSpy spins until spy has at least one record, then returns the
 // first record's Data. It fails the test after a 2 s deadline.
 //
-// why: config.PublishLog sends to a buffered channel consumed by
-// config.ProcessLogEvent in a background goroutine. A bounded spin lets
-// the goroutine schedule before the assertion runs.
+// why: config.PublishLog is asynchronous — the record reaches the spy on the
+// dispatcher goroutine, not on this one.
 func drainPublishSpy(t *testing.T, spy *support.FakePreProc) []byte {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		recs := spy.Records()
-		if len(recs) > 0 {
-			return recs[0].Data
-		}
-		// Yield to the scheduler without a wall-clock sleep.
-		done := make(chan struct{})
-		go func() { close(done) }()
-		<-done
-	}
-	t.Fatal("timed out waiting for log record from spy; ProcessLogEvent may not be running")
-	return nil
+	return support.WaitForRecords(t, spy, 1, 0)[0].Data
 }
 
 // waitForDrain blocks until spy holds at least n records or the deadline
