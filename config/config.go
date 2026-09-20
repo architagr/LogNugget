@@ -496,6 +496,13 @@ func SetOutput(output io.Writer) {
 // stored inside configMu.Lock in resetConfig so the load always returns a
 // valid ring (V3-P9 / LLD §5.1).
 func PublishLog(Level enum.LogLevel, Data []byte) {
+	// Sync mode (opt-in, off by default) delivers the record on this goroutine
+	// instead of queueing it — see [SetSyncMode] for when that is the right
+	// trade. The atomic load costs under a nanosecond on the async path.
+	if syncModeAtomic.Load() {
+		publishSync(Level, Data)
+		return
+	}
 	atomicRing.Load().Push(LogEvent{Level: Level, Data: Data})
 }
 
@@ -1011,6 +1018,9 @@ func resetConfig() {
 	// tests (and at init). Without this store, the atomic would retain a
 	// stale value from a previous SetMinLevel call across test resets.
 	atomicMinLevel.Store(int64(newCfg.minLevel))
+	// Sync mode is opt-in; a reset returns to the asynchronous default so a
+	// test that enables it cannot leak the setting into the next one.
+	syncModeAtomic.Store(false)
 	// why: storeHotSnapshot must be called after defaultConfig, restrictedFieldsSet,
 	// and atomicMinLevel are all written, so the published pointer contains a
 	// fully-consistent reset snapshot. Readers that call GetHotSnapshot after

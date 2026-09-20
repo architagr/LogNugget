@@ -360,6 +360,8 @@ introduced data corruption.
 | P3 | [#134](https://github.com/architagr/LogNugget/issues/134) — single-slab `LogEntry`, inline 256 B `pendingBuf` | ✅ MERGED |
 | P5 | [#136](https://github.com/architagr/LogNugget/issues/136) — `Err` / `Any` chain methods, `KindAny` deprecation | ✅ MERGED |
 | BENCH | [#137](https://github.com/architagr/LogNugget/issues/137) — loki-bench harness (k6 + Loki + Grafana) | ✅ MERGED |
+| P1 | [#132](https://github.com/architagr/LogNugget/issues/132) — `config.SetSyncMode` opt-in synchronous dispatch | ✅ MERGED (target missed, see below) |
+| P4 | [#135](https://github.com/architagr/LogNugget/issues/135) — string key in `model.LogAttr` | ✅ NO CHANGE NEEDED (see below) |
 | — | `SetContextFields` — typed per-request context API | ✅ MERGED |
 | C1 | Buffer-reuse corruption fix: hook copies into a pooled arena | ✅ DONE |
 | C2 | `config.FlushDispatch` + `Shutdown` drains the dispatch ring | ✅ DONE |
@@ -372,15 +374,17 @@ introduced data corruption.
 | T3 | `-shuffle=on` flakiness eliminated (4 causes) | ✅ DONE |
 | DOC | Cookbook: six runnable examples + README rewrite | ✅ DONE |
 
-### Not delivered
+### Not delivered as specified
 
-| # | Story | Status |
-|---|-------|--------|
-| P1 | [#132](https://github.com/architagr/LogNugget/issues/132) | ❓ Never implemented; no branch, no commit, and the intended scope is not recorded anywhere in the repo. The correctness work above was tracked as C1–C6 instead. |
-| P4 | [#135](https://github.com/architagr/LogNugget/issues/135) | ❓ Same. |
+| # | Story | Outcome |
+|---|-------|---------|
+| P1 | [#132](https://github.com/architagr/LogNugget/issues/132) — optional sync write path | ⚠️ DELIVERED, TARGET MISSED. `config.SetSyncMode` ships and removes the ring push, but the issue's goal — ≤ 110 ns/op parallel, beating zerolog — is not reachable this way. Measured: serial ~356 ns/op (−18% vs async), parallel ~385 ns/op (**+16%**, i.e. slower). Bypassing the queue moves contention onto the sink: eight goroutines then serialise on the collector instead of amortising a lock-free push. The issue's literal design — write straight to `io.Writer` under a global mutex — is logrus's architecture, which this repo's own benchmark measures at ~6,155 ns/op at eight goroutines. Sync mode is kept because it is genuinely better serially and for fast local sinks, and it is documented as such rather than as a zerolog-beater. |
+| P4 | [#135](https://github.com/architagr/LogNugget/issues/135) — `string` key in `model.LogAttr` | ✅ ALREADY SATISFIED. The issue assumed `LogAttr.Key` was `[]byte` and that `entry.go` paid a `string([]byte)` conversion per field. `LogAttrKey` has been declared `string` since the first configuration commit (046fba1), so the conversion is string→string: no copy, no allocation. Pinned by `entry/attr_key_test.go` so the type cannot regress. No code change was warranted. |
 
-> Close #132 and #135, or restate their scope — as they stand they are numbers
-> with no content, and the V4 story list above is what was actually built.
+> An earlier revision of this document claimed #132 and #135 had "no recorded
+> scope". That was wrong — both carry full specifications on GitHub; neither
+> had left any trace in the repository, which is what the claim was actually
+> based on.
 
 ### What the correctness fixes cost
 

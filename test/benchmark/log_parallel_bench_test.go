@@ -103,3 +103,37 @@ func Benchmark_Log_Parallel_10CtxFields_Typed(b *testing.B) {
 		}
 	})
 }
+
+// Benchmark_Log_Parallel_NoCtx_Sync is the V4-P1 comparison: the same hot path
+// with the ring bypassed, records delivered on the calling goroutine.
+//
+// The sink here is a discard writer, which is the configuration sync mode is
+// meant for. Against a sink with real latency the caller would pay that
+// latency directly — see config.SetSyncMode.
+func Benchmark_Log_Parallel_NoCtx_Sync(b *testing.B) {
+	setupBench(b, benchOpts{syncMode: true})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			entry.NewLogEntry().Info(context.Background(), "no-ctx sync bench")
+		}
+	})
+}
+
+// Benchmark_Log_Serial_Typed_Sync is the serial counterpart, where removing
+// the ring push has no contention to amortise against.
+func Benchmark_Log_Serial_Typed_Sync(b *testing.B) {
+	setupBench(b, benchOpts{syncMode: true})
+
+	ctx := context.Background()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		entry.NewLogEntry().
+			Str("method", "GET").
+			Int("status", 200).
+			Info(ctx, "request handled")
+	}
+}

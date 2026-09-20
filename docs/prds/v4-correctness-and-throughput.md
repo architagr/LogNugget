@@ -135,8 +135,14 @@ not anything regressed.
 
 ## 7. Open questions
 
-- Issues #132 (P1) and #135 (P4) were opened as part of V4 and never
-  implemented. No branch, no commit, and no description of their intended
-  scope survives in the repository. They should be closed or restated.
+- #132 asked for a sync path fast enough to beat zerolog at eight goroutines.
+  It is implemented, but the measurement says the premise was wrong: removing
+  the queue makes the parallel case slower, not faster, because the callers
+  then contend on the sink. Is a sync path that is only a serial win worth
+  keeping in the public API? It ships as opt-in and documented; the
+  alternative is to withdraw it.
 - Should the collector expose a `Sync()` for callers who want a durability
   point without shutting down? `FlushDispatch` covers the dispatch stage only.
+- #135 assumed a `[]byte` key that this codebase has never had. Worth auditing
+  the remaining open issues for the same class of stale premise before they
+  are picked up.

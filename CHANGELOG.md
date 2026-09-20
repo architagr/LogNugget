@@ -57,6 +57,15 @@ uncovered. Not yet released.
 
 ### Added
 
+- **`config.SetSyncMode(bool)`** (V4-P1) — opt-in synchronous dispatch: the
+  caller delivers the record to the hooks itself and the ring is not used.
+  ~18% faster serially (~356 vs ~435 ns/op) and ~16% slower at eight
+  goroutines (~385 vs ~331 ns/op), because bypassing the queue moves
+  contention onto the sink. Intended for a fast local sink where single-call
+  latency matters; with a network sink every logging goroutine blocks on it.
+  Hooks still fan out — an earlier design wrote straight to the `io.Writer`,
+  which would have silently stopped every registered hook.
+
 - **`config.SetContextFields`** — typed per-request context fields via
   `*config.CtxFields` (`Str`, `Int`, `Uint`, `Bool`, `Float64`). Replaces raw
   `[]byte` handling for most callers; `SetContextFieldsAppender` remains for

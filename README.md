@@ -172,6 +172,7 @@ call them in `main` before serving traffic.
 | `config.SetContextFields(fn)` | `nil` | Per-request fields (see above) |
 | `config.SetLogBufferMaxSize(n)` | `20` | Flush once `n` records are buffered |
 | `config.SetRate(d)` | `1s` | Flush at least every `d` |
+| `config.SetSyncMode(bool)` | `false` | Deliver on the calling goroutine instead of via the ring (see below) |
 
 Full walk-through with output: [`examples/cookbook/04-configuration`](examples/cookbook/04-configuration).
 
@@ -223,6 +224,13 @@ means proportionally fewer writes. From [`examples/cookbook/06-tuning`](examples
 | `bucket=1 rate=1s` | 500 | 41,390 |
 | `bucket=20 rate=1s` (default) | 25 | 41,390 |
 | `bucket=500 rate=5s` | 1 | 41,390 |
+
+**Sync mode.** `config.SetSyncMode(true)` bypasses the ring and delivers each record to the
+hooks on the calling goroutine. It removes the ring push (~94 ns under 8 producers) and is
+~18% faster serially (~356 vs ~435 ns/op), but ~16% slower at 8 goroutines (~385 vs ~331 ns/op)
+because the callers then contend on the collector instead. Use it only with a fast local sink
+where single-call latency matters; with a network sink every logging goroutine blocks on that
+sink, which is the failure mode async exists to avoid.
 
 `lognugget.Shutdown()` drains both asynchronous stages — the dispatch ring, then the collector's
 buffer — and blocks until the last byte is written. Call it before exit: with a 5 s rate, even a
@@ -299,6 +307,8 @@ see [Why async?](#why-async) above.
 | `Benchmark_Log_Filtered_BelowMinLevel` (serial) | ~14 | 0 | 0 |
 | `Benchmark_Log_Filtered_BelowMinLevel_Parallel` | ~3.6 | 0 | 0 |
 | `BenchmarkRingBuffer_Push` | ~94 | 0 | 0 |
+| `Benchmark_Log_Parallel_NoCtx_Sync` (sync mode) | ~385 | ~33 | 1 |
+| `Benchmark_Log_Serial_Typed_Sync` (sync mode) | ~356 | ~37 | 1 |
 | `BenchmarkAppendAttr_Str` | ~23 | 0 | 0 |
 | `BenchmarkAppendAttr_Int` | ~11 | 0 | 0 |
 | `BenchmarkLogEntry_CtxFields_10` (typed) | ~558 | ~56 | 1 |

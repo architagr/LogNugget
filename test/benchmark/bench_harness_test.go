@@ -25,6 +25,8 @@ type benchOpts struct {
 	ctxParser   config.ContextFieldsParser
 	// staticParser installs once-evaluated static fields (hostname, version).
 	staticParser config.StaticEnvFieldsParser
+	// syncMode routes delivery onto the calling goroutine (V4-P1).
+	syncMode bool
 	// poolEntries is the pre-warmed LogEntry pool size. Defaults to
 	// GOMAXPROCS*64, which matches a production process rather than the
 	// 1M-entry pool that used to mask GC pressure.
@@ -66,6 +68,8 @@ func setupBench(b *testing.B, opts benchOpts) {
 		config.SetContextFieldsParser(opts.ctxParser)
 	}
 
+	config.SetSyncMode(opts.syncMode)
+
 	proc := pipelineStage.NewUnsetLogEventPostProcessor(2*time.Second, 500, &MockWriter{})
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, proc)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
@@ -93,6 +97,7 @@ func resetGlobalConfig() {
 	config.SetAddSource(false)
 	config.SetTimeFormat(time.RFC3339)
 	config.SetMinLevel(enum.LevelInfo)
+	config.SetSyncMode(false)
 }
 
 // benchCtx returns a background context carrying the two demo context values
