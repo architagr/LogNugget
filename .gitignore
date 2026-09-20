@@ -29,3 +29,16 @@ CLAUDE.md
 */coverage.txt
 .claude
 graphify-out/
+examples/loki-bench/bin/
+
+# Compiled example binaries (each examples/<name> module builds to its own
+# directory name, which has no extension and so escapes the rules above).
+examples/*/*[!.]
+!examples/*/*.go
+!examples/*/*.md
+!examples/*/*.mod
+!examples/*/*.sum
+!examples/*/*.yml
+!examples/*/*.yaml
+!examples/*/*.js
+!examples/*/*/

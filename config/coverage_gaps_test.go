@@ -23,6 +23,10 @@ func Test_Config_StaticFields(t *testing.T) {
 }
 
 func Test_Config_ContextParser(t *testing.T) {
+	// Assert against pristine defaults: reset first, not only on the way out,
+	// so a prior test that left a parser installed cannot fail this one under
+	// -shuffle.
+	config.TestResetConfig()
 	t.Cleanup(config.TestResetConfig)
 	if got := config.GetConfig().ContextParser(); got != nil {
 		t.Error("default ContextParser should be nil")
@@ -30,6 +34,10 @@ func Test_Config_ContextParser(t *testing.T) {
 }
 
 func Test_Config_TimeFormat(t *testing.T) {
+	// Assert against pristine defaults: reset first, not only on the way out,
+	// so a prior test that left a parser installed cannot fail this one under
+	// -shuffle.
+	config.TestResetConfig()
 	t.Cleanup(config.TestResetConfig)
 	if got := config.GetConfig().TimeFormat(); got == "" {
 		t.Error("TimeFormat() should be non-empty by default")
@@ -37,6 +45,10 @@ func Test_Config_TimeFormat(t *testing.T) {
 }
 
 func Test_Config_Encoder(t *testing.T) {
+	// Assert against pristine defaults: reset first, not only on the way out,
+	// so a prior test that left a parser installed cannot fail this one under
+	// -shuffle.
+	config.TestResetConfig()
 	t.Cleanup(config.TestResetConfig)
 	if got := config.GetConfig().Encoder(); got == nil {
 		t.Error("Encoder() should be non-nil by default")

@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/architagr/lognugget/config"
 	"github.com/architagr/lognugget/entry"
@@ -21,21 +20,10 @@ import (
 	"github.com/architagr/lognugget/test/support"
 )
 
-// drainInlineRec polls spy.Records() until at least n records arrive.
+// drainInlineRec waits until at least n records have arrived.
 func drainInlineRec(t *testing.T, spy *support.FakePreProc, n int) []support.FakePreProcRecord {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		recs := spy.Records()
-		if len(recs) >= n {
-			return recs
-		}
-		done := make(chan struct{})
-		go func() { close(done) }()
-		<-done
-	}
-	t.Fatalf("timed out: want %d records, got %d", n, len(spy.Records()))
-	return nil
+	return support.WaitForRecords(t, spy, n, 0)
 }
 
 // Test_InlineFraming_JSONOutput verifies that a full log call with the JSON

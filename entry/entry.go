@@ -21,29 +21,26 @@ type LogEntry struct {
 	// caller is the call-site frame appended to the log line when cfg.addSource
 	// is true. Populated lazily inside logWithSkip via runtime.Caller(skip).
 	caller *runtime.Frame
-	// buf is the reusable byte accumulator for the rendered log body.
-	// It is pre-grown to initBufCap at construction and reset to len=0 (not
-	// nil) on each pool cycle so that the backing array survives across reuses.
-	// why: eliminates the make([]byte, 0, 256) allocation on every Log call
-	// (D-6 / F27). initBufCap = 1 KB covers the vast majority of log lines.
+	// buf is the reusable byte accumulator for the rendered log body. On every
+	// log call it receives a buffer from config.dispatchBufPool (zero alloc when
+	// warm) so that the backing array survives across pool cycles without a
+	// per-call make(). V4-P2 owns the buf lifecycle; V4-P3 eliminates the
+	// separate pendingBuf allocation by inlining its backing storage.
 	buf []byte
 	// pendingBuf accumulates chain-method fields (Str/Int/Uint/Float64/Bool)
-	// before they are flushed into buf during logWithSkip. Each field is
-	// written as ",key":value so they can be appended verbatim.
-	// Pre-grown to pendingBufCap (256 B) at pool construction; capacity is
-	// retained across pool cycles to eliminate per-call allocations.
+	// before they are flushed into buf during logWithSkip. Its backing storage
+	// is the inline pendingBufSlab array — no separate heap allocation (V4-P3).
 	pendingBuf []byte
+	// pendingBufSlab is the inline backing array for pendingBuf. By embedding
+	// it in the struct, initLogEntry() allocates a single *LogEntry (1 alloc)
+	// instead of struct + buf + pendingBuf (3 allocs), reducing the cold pool
+	// miss cost to match zerolog's 1-alloc pool entry (V4-P3 / refs #134).
+	pendingBufSlab [pendingBufCap]byte
+	// ctxFields is the pre-allocated CtxFields passed to config.ContextFieldsFunc.
+	// Embedding it here eliminates the separate sync.Pool Get/Put that a standalone
+	// CtxFields pool would require on the hot path (V4-P6 / refs #135).
+	ctxFields config.CtxFields
 }
-
-// initBufCap is the initial capacity of LogEntry.buf. 1 KB covers ~80% of
-// real-world structured log lines without reallocation on the hot path.
-const initBufCap = 1024
-
-// p8SeveranceCapHook, when non-nil, is called with the newCap value computed
-// by the P8 exact-size buffer severance code. Always nil in production; set
-// by white-box tests to verify buffer sizing without depending on sync.Pool
-// slot identity (which is non-deterministic under -race / multi-P execution).
-var p8SeveranceCapHook func(int)
 
 // pendingBufCap is the initial capacity of LogEntry.pendingBuf. 256 B covers
 // the typical chain-method field set (10 typed fields) without reallocation.
@@ -71,10 +68,11 @@ func NewLogEntry() *LogEntry {
 // in reset_test.go is updated to allow this exception.
 func (e *LogEntry) reset() {
 	retained := e.buf[:0]
-	retainedPending := e.pendingBuf[:0]
 	*e = LogEntry{}
 	e.buf = retained
-	e.pendingBuf = retainedPending
+	// Re-slice pendingBuf from the inline slab — zero alloc. The slab is part
+	// of the struct and survives the zero-value assignment above (V4-P3).
+	e.pendingBuf = e.pendingBufSlab[:0]
 }
 
 // Put returns e to the internal sync.Pool. It is called automatically by Log
@@ -219,10 +217,9 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 		e.pendingBuf = e.pendingBuf[:0]
 	}
 
-	// Context fields — AppendContextFields dispatches to the zero-alloc
-	// ContextAppender when registered, or falls back to the legacy parser path.
-	// Both paths use snap.RestrictedFields so no extra configMu lock is needed.
-	e.buf = config.AppendContextFields(ctx, e.buf, snap)
+	// Context fields — AppendContextFields dispatches to ContextAppender,
+	// ContextFunc (via &e.ctxFields — no extra alloc), or legacy parser.
+	e.buf = config.AppendContextFields(ctx, e.buf, snap, &e.ctxFields)
 
 	if err != nil {
 		e.buf = append(e.buf, ',')
@@ -240,23 +237,17 @@ func (e *LogEntry) logWithSkip(level enum.LogLevel, ctx context.Context, message
 	}
 
 	// why: append closing bytes (e.g. `}\n` for JSON) directly into e.buf —
-	// no intermediate allocation. Then transfer ownership of e.buf to the
-	// channel by severing the pool alias: replace e.buf with a fresh
-	// make([]byte, 0, initBufCap) so that reset() in e.Put() retains this
-	// new backing array (not the one handed to PublishLog). ProcessLogEvent
-	// reads Data asynchronously; after the transfer the pool goroutine and the
-	// consumer goroutine each own separate backing arrays — no data race.
-	// Eliminates 2 allocs per call vs pre-P4 (en.Append + dataCopy). P4.
+	// Sever the pool alias: swap e.buf with a pooled replacement so that the
+	// LogEntry returned to entryPool and the slice dispatched to the ring own
+	// separate backing arrays — no data race. The replacement comes from
+	// dispatchBufPool (zero alloc when warm) instead of make(), eliminating
+	// the per-call heap allocation from P4/P8 (V4-P2 / refs #133).
+	// ReturnDispatchBuf is called by dispatchEvent after all pre-processors
+	// have read data, completing the buffer lifecycle without any make() on the
+	// hot path.
 	e.buf = append(e.buf, snap.EncoderClose...)
 	data := e.buf
-	newCap := len(data)
-	if newCap < 64 {
-		newCap = 64
-	}
-	e.buf = make([]byte, 0, newCap)
-	if p8SeveranceCapHook != nil {
-		p8SeveranceCapHook(newCap)
-	}
+	e.buf = config.GetDispatchBuf()
 	config.PublishLog(level, data)
 	e.Put()
 }
@@ -300,6 +291,7 @@ func (e *LogEntry) Panic(ctx context.Context, err error, message string, fields 
 // chaining. The field is written as ,"key":"value" with RFC 8259 escaping.
 // Zero heap allocations when pendingBuf has sufficient capacity.
 func (e *LogEntry) Str(key, val string) *LogEntry {
+	key = config.SafeFieldKey(key)
 	e.pendingBuf = append(e.pendingBuf, ',')
 	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Str(key, val))
 	return e
@@ -308,6 +300,7 @@ func (e *LogEntry) Str(key, val string) *LogEntry {
 // Int appends an int64 field to the entry's pending buffer and returns e for
 // chaining. The value is written as an unquoted JSON integer.
 func (e *LogEntry) Int(key string, val int64) *LogEntry {
+	key = config.SafeFieldKey(key)
 	e.pendingBuf = append(e.pendingBuf, ',')
 	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Int(key, val))
 	return e
@@ -316,6 +309,7 @@ func (e *LogEntry) Int(key string, val int64) *LogEntry {
 // Uint appends a uint64 field to the entry's pending buffer and returns e for
 // chaining. The value is written as an unquoted JSON integer.
 func (e *LogEntry) Uint(key string, val uint64) *LogEntry {
+	key = config.SafeFieldKey(key)
 	e.pendingBuf = append(e.pendingBuf, ',')
 	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Uint(key, val))
 	return e
@@ -324,6 +318,7 @@ func (e *LogEntry) Uint(key string, val uint64) *LogEntry {
 // Float64 appends a float64 field to the entry's pending buffer and returns e
 // for chaining. NaN and ±Inf are rendered as JSON null.
 func (e *LogEntry) Float64(key string, val float64) *LogEntry {
+	key = config.SafeFieldKey(key)
 	e.pendingBuf = append(e.pendingBuf, ',')
 	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Float64(key, val))
 	return e
@@ -332,7 +327,27 @@ func (e *LogEntry) Float64(key string, val float64) *LogEntry {
 // Bool appends a bool field to the entry's pending buffer and returns e for
 // chaining. The value is written as an unquoted JSON boolean.
 func (e *LogEntry) Bool(key string, val bool) *LogEntry {
+	key = config.SafeFieldKey(key)
 	e.pendingBuf = append(e.pendingBuf, ',')
 	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.Bool(key, val))
+	return e
+}
+
+// Err appends the error message as an "error" string field. No-op when err is nil.
+func (e *LogEntry) Err(err error) *LogEntry {
+	if err == nil {
+		return e
+	}
+	e.pendingBuf = append(e.pendingBuf, ',')
+	e.pendingBuf = config.AppendAttr(e.pendingBuf, "error", model.Str("error", err.Error()))
+	return e
+}
+
+// Any appends val as a JSON field using interface{} boxing. Prefer typed chain
+// methods (Str, Int, Bool, Float64, Uint) on the hot path to avoid allocations.
+func (e *LogEntry) Any(key string, val any) *LogEntry {
+	key = config.SafeFieldKey(key)
+	e.pendingBuf = append(e.pendingBuf, ',')
+	e.pendingBuf = config.AppendAttr(e.pendingBuf, key, model.LogAttr{Key: model.LogAttrKey(key), Value: val})
 	return e
 }

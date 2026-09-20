@@ -13,9 +13,10 @@ import (
 // This guards the hot-path invariant from D-6 / F27 / story 021: the
 // pooled LogEntry.buf must grow once (at pool construction) and then
 // sustain zero allocations for all common field types on subsequent calls.
+// why: not parallel — testing.AllocsPerRun panics when called from a parallel
+// test (or a subtest of one) under Go 1.26+, and alloc counts are unreliable
+// under concurrent GC regardless.
 func Test_AppendField_NoAllocOnGrownBuf(t *testing.T) {
-	t.Parallel()
-
 	cases := []struct {
 		name  string
 		key   string
@@ -32,8 +33,6 @@ func Test_AppendField_NoAllocOnGrownBuf(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			buf := make([]byte, 0, 512)
 			allocs := testing.AllocsPerRun(100, func() {
 				buf = config.AppendField(buf[:0], tc.key, tc.value)

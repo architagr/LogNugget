@@ -1,6 +1,7 @@
 package pipelineStage
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,16 +19,16 @@ func Test_PostProcessor_StopDrainsActiveBucket(t *testing.T) {
 	// Use a very slow ticker so the flush is only triggered by Stop, not the ticker.
 	obj := NewUnsetLogEventPostProcessor(10*time.Minute, 100, out)
 
-	obj.PublishLogMessage([]byte("msg1"))
-	obj.PublishLogMessage([]byte("msg2"))
-	obj.PublishLogMessage([]byte("msg3"))
-	obj.PublishLogMessage([]byte("msg4"))
-	obj.PublishLogMessage([]byte("msg5"))
+	obj.PublishLogMessage([]byte("msg1\n"))
+	obj.PublishLogMessage([]byte("msg2\n"))
+	obj.PublishLogMessage([]byte("msg3\n"))
+	obj.PublishLogMessage([]byte("msg4\n"))
+	obj.PublishLogMessage([]byte("msg5\n"))
 
 	obj.Stop()
 
-	// each message produces 2 Write calls (data + "\n")
-	assert.Equal(t, 10, out.Count(), "Stop must drain all 5 enqueued messages")
+	// one Write per record
+	assert.Equal(t, 5, out.Count(), "Stop must drain all 5 enqueued messages")
 }
 
 // Test_PostProcessor_StopSynchronous verifies that Stop returns only AFTER the
@@ -39,13 +40,13 @@ func Test_PostProcessor_StopSynchronous(t *testing.T) {
 	obj := NewUnsetLogEventPostProcessor(10*time.Minute, 100, out)
 
 	for i := 0; i < 20; i++ {
-		obj.PublishLogMessage([]byte("payload"))
+		obj.PublishLogMessage([]byte("payload\n"))
 	}
 
 	obj.Stop()
 
-	// If Stop is synchronous, out.Count() must be exactly 40 here (20 × 2).
-	assert.Equal(t, 40, out.Count(), "Stop must be synchronous: all writes complete before Stop returns")
+	// If Stop is synchronous, out.Count() must be exactly 20 here (one per record).
+	assert.Equal(t, 20, out.Count(), "Stop must be synchronous: all writes complete before Stop returns")
 }
 
 // Test_PostProcessor_StopIdempotent verifies that calling Stop twice does not
@@ -55,7 +56,7 @@ func Test_PostProcessor_StopIdempotent(t *testing.T) {
 
 	out := &mockWriter{}
 	obj := NewUnsetLogEventPostProcessor(10*time.Minute, 100, out)
-	obj.PublishLogMessage([]byte("x"))
+	obj.PublishLogMessage([]byte("x\n"))
 
 	obj.Stop()
 
@@ -79,25 +80,26 @@ func Test_PostProcessor_StopWithInFlightFlush(t *testing.T) {
 
 	// Publish messages before ticker fires.
 	for i := 0; i < 5; i++ {
-		obj.PublishLogMessage([]byte("tick-flush"))
+		obj.PublishLogMessage([]byte("tick-flush\n"))
 	}
 	// Wait for the ticker to fire and start an async flush goroutine.
 	time.Sleep(50 * time.Millisecond)
 
 	// Publish more messages that will be in the bucket when Stop fires.
 	for i := 0; i < 5; i++ {
-		obj.PublishLogMessage([]byte("stop-flush"))
+		obj.PublishLogMessage([]byte("stop-flush\n"))
 	}
 
 	obj.Stop()
 
 	mu.Lock()
-	total := len(writes)
+	total := strings.Count(strings.Join(writes, ""), "\n")
 	mu.Unlock()
 
-	// 10 messages × 2 Write calls each = 20. But we only care that at least
-	// the 5 stop-path messages are written; the tick-flushed ones may vary.
-	assert.GreaterOrEqual(t, total, 10, "Stop must drain stop-path messages; in-flight flush must also complete")
+	// Records, not Write calls: a flush writes its whole batch at once, so the
+	// ten messages arrive in as few as two writes. We only care that at least
+	// the 5 stop-path records are written; the tick-flushed ones may vary.
+	assert.GreaterOrEqual(t, total, 5, "Stop must drain stop-path messages; in-flight flush must also complete")
 }
 
 // blockingWriter is an io.Writer that records calls into a shared slice.

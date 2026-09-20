@@ -4,6 +4,11 @@
 // user-defined field keys.
 package config_test
 
+// why (no t.Parallel in this file): every test here reads or mutates the
+// package-global configuration singleton. Running them in parallel let a test
+// that renames default fields observe — or be observed by — a test asserting
+// pristine defaults, which showed up as a rare -shuffle=on CI failure.
+
 import (
 	"strings"
 	"testing"
@@ -40,7 +45,6 @@ var nonReserved = []string{
 //
 //	input key      -> expected output prefix present?
 func Test_ValidateAndParse_PrefixesCollidingKey(t *testing.T) {
-	t.Parallel()
 
 	tests := []struct {
 		name         string
@@ -172,12 +176,10 @@ func Test_ValidateAndParse_PrefixesCollidingKey(t *testing.T) {
 // explicit SetDefaultFields call. This guards against the D-8 defect where
 // the slice was only filled after SetDefaultFields was invoked.
 func Test_ValidateAndParse_ReservedKeysPopulatedAtInit(t *testing.T) {
-	t.Parallel()
 
 	for _, key := range reservedByDefault {
 		key := key // capture
 		t.Run("reserved_at_init_"+key, func(t *testing.T) {
-			t.Parallel()
 			got := config.ValidateandParseLogField(key, "v")
 			prefixedKey := config.DefaultPrefix + key
 			if !strings.Contains(got, "\""+prefixedKey+"\"") {
@@ -192,12 +194,10 @@ func Test_ValidateAndParse_ReservedKeysPopulatedAtInit(t *testing.T) {
 // keys that are not in the built-in restricted set are never silently
 // prefixed before any SetDefaultFields call.
 func Test_ValidateAndParse_NonReservedKeysNotPrefixedAtInit(t *testing.T) {
-	t.Parallel()
 
 	for _, key := range nonReserved {
 		key := key
 		t.Run("not_reserved_at_init_"+key, func(t *testing.T) {
-			t.Parallel()
 			got := config.ValidateandParseLogField(key, "v")
 			prefixedKey := config.DefaultPrefix + key
 			if strings.Contains(got, "\""+prefixedKey+"\"") {

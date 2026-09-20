@@ -61,6 +61,10 @@ func init() {
 	defaultPostProc = proc
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, proc)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
+	// Let config.SetOutput / SetRate / SetLogBufferMaxSize retune this
+	// collector; without the registration those setters would record values
+	// that nothing ever read.
+	config.RegisterDefaultSink(proc)
 }
 
 // Shutdown drains the default post-processor and blocks until all buffered
@@ -72,14 +76,22 @@ func init() {
 // to ensure in-flight log events reach their destination before the process
 // exits.
 //
-// N-5 loss window: Fatal and Panic log events that have been dispatched to the
-// post-processor's internal channel but not yet drained when Shutdown is called
-// will be flushed by the drain. However, events that are still in-flight inside
-// the caller's goroutine (e.g. not yet passed to PublishLogMessage) at the
-// moment Shutdown completes may be lost. Ensure all logging goroutines have
-// finished publishing before calling Shutdown to close this window.
+// Shutdown drains the two asynchronous stages in order:
+//
+//  1. config.FlushDispatch — waits for the MPSC ring consumer to hand every
+//     published event to the registered hooks. why: a log call returns as soon
+//     as the event is in the ring, so stopping the hooks first would discard
+//     everything the consumer had not yet picked up — the last lines a
+//     short-lived process writes are exactly the ones at risk.
+//  2. the default post-processor's Stop, which writes its pending bucket.
+//
+// N-5 loss window: events that are still in-flight inside the caller's
+// goroutine (not yet passed to PublishLog) when Shutdown runs may be lost.
+// Ensure all logging goroutines have finished publishing before calling
+// Shutdown to close this window.
 func Shutdown() {
 	shutdownOnce.Do(func() {
+		config.FlushDispatch(config.DefaultFlushTimeout)
 		if defaultPostProc != nil {
 			defaultPostProc.Stop()
 		}

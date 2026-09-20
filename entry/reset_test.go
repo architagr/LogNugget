@@ -71,7 +71,7 @@ func Test_LogEntry_ResetExhaustive(t *testing.T) {
 func Test_LogEntry_BufResetSizeZero(t *testing.T) {
 	t.Parallel()
 
-	e := &LogEntry{buf: make([]byte, 0, initBufCap)}
+	e := &LogEntry{buf: make([]byte, 0, 1024)}
 	e.buf = append(e.buf, []byte("hello world")...)
 	prevCap := cap(e.buf)
 

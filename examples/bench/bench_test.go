@@ -22,7 +22,6 @@ import (
 	"github.com/architagr/lognugget/config"
 	"github.com/architagr/lognugget/entry"
 	"github.com/architagr/lognugget/enum"
-	"github.com/architagr/lognugget/model"
 	pipelineStage "github.com/architagr/lognugget/pipeline_stage"
 	"github.com/rs/zerolog"
 	"github.com/sirupsen/logrus"
@@ -56,18 +55,36 @@ func setupLognugget() {
 		config.SetOutput(io.Discard)
 		config.SetMinLevel(enum.LevelDebug)
 		config.SetEncoderType(enum.EncoderJSON)
-		config.SetContextFieldsParser(func(ctx context.Context) map[string]any {
-			return map[string]any{
-				"trace_id":   ctx.Value(ctxKey("trace_id")),
-				"span_id":    ctx.Value(ctxKey("span_id")),
-				"request_id": ctx.Value(ctxKey("request_id")),
-				"user_id":    ctx.Value(ctxKey("user_id")),
-				"tenant_id":  ctx.Value(ctxKey("tenant_id")),
-				"session_id": ctx.Value(ctxKey("session_id")),
-				"env":        ctx.Value(ctxKey("env")),
-				"region":     ctx.Value(ctxKey("region")),
-				"service":    ctx.Value(ctxKey("service")),
-				"version":    ctx.Value(ctxKey("version")),
+		config.SetContextFields(func(ctx context.Context, f *config.CtxFields) {
+			if v, _ := ctx.Value(ctxKey("trace_id")).(string); v != "" {
+				f.Str("trace_id", v)
+			}
+			if v, _ := ctx.Value(ctxKey("span_id")).(string); v != "" {
+				f.Str("span_id", v)
+			}
+			if v, _ := ctx.Value(ctxKey("request_id")).(string); v != "" {
+				f.Str("request_id", v)
+			}
+			if v, _ := ctx.Value(ctxKey("user_id")).(string); v != "" {
+				f.Str("user_id", v)
+			}
+			if v, _ := ctx.Value(ctxKey("tenant_id")).(string); v != "" {
+				f.Str("tenant_id", v)
+			}
+			if v, _ := ctx.Value(ctxKey("session_id")).(string); v != "" {
+				f.Str("session_id", v)
+			}
+			if v, _ := ctx.Value(ctxKey("env")).(string); v != "" {
+				f.Str("env", v)
+			}
+			if v, _ := ctx.Value(ctxKey("region")).(string); v != "" {
+				f.Str("region", v)
+			}
+			if v, _ := ctx.Value(ctxKey("service")).(string); v != "" {
+				f.Str("service", v)
+			}
+			if v, _ := ctx.Value(ctxKey("version")).(string); v != "" {
+				f.Str("version", v)
 			}
 		})
 		hook := pipelineStage.NewUnsetLogEventPostProcessor(
@@ -84,33 +101,29 @@ func setupLognugget() {
 func BenchmarkLognugget_Serial_10CtxFields(b *testing.B) {
 	setupLognugget()
 	ctx := ctx10()
-	attrs := []model.LogAttr{
-		{Key: "method", Value: "GET"},
-		{Key: "path", Value: "/api/users"},
-	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		e := entry.NewLogEntry()
-		e.Info(ctx, "request processed", attrs...)
+		entry.NewLogEntry().
+			Str("method", "GET").
+			Str("path", "/api/users").
+			Info(ctx, "request processed")
 	}
 }
 
 func BenchmarkLognugget_Parallel_10CtxFields(b *testing.B) {
 	setupLognugget()
 	ctx := ctx10()
-	attrs := []model.LogAttr{
-		{Key: "method", Value: "GET"},
-		{Key: "path", Value: "/api/users"},
-	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			e := entry.NewLogEntry()
-			e.Info(ctx, "request processed", attrs...)
+			entry.NewLogEntry().
+				Str("method", "GET").
+				Str("path", "/api/users").
+				Info(ctx, "request processed")
 		}
 	})
 }
@@ -124,13 +137,11 @@ func BenchmarkLognugget_Filtered_BelowMinLevel(b *testing.B) {
 	defer config.SetMinLevel(enum.LevelDebug)
 
 	ctx := ctx10()
-	attrs := []model.LogAttr{{Key: "method", Value: "GET"}}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		e := entry.NewLogEntry()
-		e.Debug(ctx, "filtered debug", attrs...)
+		entry.NewLogEntry().Str("method", "GET").Debug(ctx, "filtered debug")
 	}
 }
 

@@ -22,9 +22,9 @@ func Test_TimeNow_UTC(t *testing.T) {
 // Test_AppendFormat_NoAlloc verifies that AppendFormat performs zero heap
 // allocations per call, which is the key property that makes it safe for
 // the hot log-formatting path.
+// why: not parallel — testing.AllocsPerRun panics when called from a parallel
+// test (or a subtest of one) under Go 1.26+.
 func Test_AppendFormat_NoAlloc(t *testing.T) {
-	t.Parallel()
-
 	dst := make([]byte, 0, 64)
 	fixed := time.Date(2024, 1, 2, 15, 4, 5, 0, time.UTC)
 
