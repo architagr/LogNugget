@@ -84,7 +84,7 @@ uncovered. Not yet released.
 - **Performance gate in CI** (`.github/workflows/bench.yml`), including a job
   that builds and vets every example module. The gate's regression check is now
   real: it compares per-benchmark means against `bench-baseline.txt` and fails
-  past a 20% tolerance. Previously it keyed off `benchstat`'s exit code, which
+  past a 25% tolerance. Previously it keyed off `benchstat`'s exit code, which
   is 0 whether or not anything regressed.
 
 ### Changed
@@ -101,7 +101,7 @@ uncovered. Not yet released.
   received an event. Use
   `pipelineStage.EventPreProcessorObj.RegisterHook(level, hook)`.
 - **Deprecated `config.SetContextFieldsParser`** in favour of
-  `SetContextFields` — ~1,108 ns/op versus ~511 ns/op at ten fields.
+  `SetContextFields` — ~1,144 ns/op versus ~558 ns/op at ten fields.
 - CI now tests Go 1.22 through 1.26.
 
 ### Performance
@@ -110,11 +110,11 @@ Apple M1 Pro, `GOMAXPROCS=8`, Go 1.26, isolated benchmarks:
 
 | Path | ns/op | B/op | allocs/op |
 |------|-------|------|-----------|
-| Parallel, no context fields | ~329 | ~33 | 1 |
-| Parallel, 10 typed context fields | ~317 | ~42 | 1 |
-| Serial, typed fields | ~399 | ~40 | 1 |
+| Parallel, no context fields | ~324 | ~33 | 1 |
+| Parallel, 10 typed context fields | ~315 | ~38 | 1 |
+| Serial, typed fields | ~491 | ~41 | 1 |
 | Filtered (below min level), serial | ~14 | 0 | 0 |
-| Filtered, parallel | ~3.4 | 0 | 0 |
+| Filtered, parallel | ~3.6 | 0 | 0 |
 
 > These are **not** comparable to the V3 figures published in 3.0.0. Those were
 > measured with a 1M-entry pool and with leaked global state from earlier

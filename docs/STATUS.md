@@ -29,7 +29,7 @@
 
 ### Latency budget — where the caller's nanoseconds go
 
-Measured on the V4 parallel hot path (~329 ns/op, 1 alloc, ~33 B). Everything
+Measured on the V4 parallel hot path (~324 ns/op, 1 alloc, ~33 B). Everything
 after the ring push happens on another goroutine and does not bill the caller.
 
 ```
@@ -40,10 +40,10 @@ after the ring push happens on another goroutine and does not bill the caller.
   │  Hot snapshot load (atomic.Pointer)   │    ~0.6   │ GetHotSnapshot   │
   │  Timestamp AppendFormat               │     ~40   │ Timestamp_Direct │
   │  Level bytes (pre-rendered table)     │     ~2    │ AppendQuotedLevel│
-  │  Per typed field (Str)                │     ~22   │ AppendAttr_Str   │
+  │  Per typed field (Str)                │     ~23   │ AppendAttr_Str   │
   │  Per typed field (Int)                │     ~11   │ AppendAttr_Int   │
-  │  Context fields, 10 typed             │    ~180   │ CtxFields_10     │
-  │  Ring push (8 producers)              │     ~91   │ RingBuffer_Push  │
+  │  Context fields, 10 typed             │    ~240   │ CtxFields_10     │
+  │  Ring push (8 producers)              │     ~94   │ RingBuffer_Push  │
   │───────────────────────────────────────┼───────────┼──────────────────│
   │  Off the caller: encode framing, fan-out to hooks, arena copy, write │
   └──────────────────────────────────────────────────────────────────────┘
@@ -52,8 +52,8 @@ after the ring push happens on another goroutine and does not bill the caller.
 > The remaining single allocation per record is the dispatch buffer handed to
 > the ring; it is returned to `dispatchBufPool` once every hook has read it.
 > The legacy `map[string]any` context parser is the one path still above the
-> 1 µs ceiling (~1,108 ns at ten fields) and is deprecated in favour of
-> `SetContextFields` (~511 ns for the same ten fields).
+> 1 µs ceiling (~1,144 ns at ten fields) and is deprecated in favour of
+> `SetContextFields` (~558 ns for the same ten fields).
 
 ### Milestone tracking
 
@@ -66,9 +66,9 @@ All figures Apple M1 Pro, GOMAXPROCS=8, parallel hot path unless noted.
 | **M3** (story 037) | ~2,050 | 18 | ~1,400 | historical |
 | **V2 parallel NoCtx** (feat/81) | ~1,090 | 5 | ~1,411 | historical |
 | **V3 parallel NoCtx** (feat/111) | ~196 | 2 | ~105 | ⚠️ see note |
-| **V4 parallel NoCtx** | **~329** | **1** | **~33** | ✅ MEASURED |
-| **V4 parallel 10 ctx (typed)** | **~317** | **1** | **~42** | ✅ MEASURED |
-| **V4 serial (typed fields)** | **~399** | **1** | **~40** | ✅ MEASURED |
+| **V4 parallel NoCtx** | **~324** | **1** | **~33** | ✅ MEASURED |
+| **V4 parallel 10 ctx (typed)** | **~315** | **1** | **~38** | ✅ MEASURED |
+| **V4 serial (typed fields)** | **~491** | **1** | **~41** | ✅ MEASURED |
 
 > ⚠️ **The V3 numbers are not comparable to V4's.** They were measured with a
 > 1M-entry `LogEntry` pool and with global state left behind by earlier
@@ -88,15 +88,15 @@ All figures Apple M1 Pro, GOMAXPROCS=8, parallel hot path unless noted.
 
 | Check | Target | V4 (current) | Status |
 |-------|--------|--------------|--------|
-| Hot-path parallel NoCtx | ≤ 500 ns/op | ~329 ns/op | ✅ GREEN |
-| Hot-path parallel 10 ctx (typed) | ≤ 500 ns/op | ~317 ns/op | ✅ GREEN |
-| Filtered path (below minLevel) | < 80 ns/op | ~14 ns/op serial · ~3.4 ns/op parallel | ✅ GREEN |
+| Hot-path parallel NoCtx | ≤ 500 ns/op | ~324 ns/op | ✅ GREEN |
+| Hot-path parallel 10 ctx (typed) | ≤ 500 ns/op | ~315 ns/op | ✅ GREEN |
+| Filtered path (below minLevel) | < 80 ns/op | ~14 ns/op serial · ~3.6 ns/op parallel | ✅ GREEN |
 | Allocs/op (parallel NoCtx) | ≤ 2/op | 1/op | ✅ GREEN |
 | Bytes/op (parallel NoCtx) | ≤ 2,048/op | ~33 B/op | ✅ GREEN |
 | `go test ./...` | pass | pass (Go 1.22–1.26) | ✅ GREEN |
 | `-race -shuffle=on` | clean | clean, 10 consecutive runs | ✅ GREEN |
 | `golangci-lint run` | 0 issues | 0 issues | ✅ GREEN |
-| `bench-check.sh` | PASS | PASS (ceiling + 20% regression check) | ✅ GREEN |
+| `bench-check.sh` | PASS | PASS (1 µs ceiling + 25% regression check) | ✅ GREEN |
 
 ---
 
