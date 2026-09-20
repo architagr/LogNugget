@@ -53,8 +53,9 @@ func Test_Integration_StopDrainsAllQueued(t *testing.T) {
 
 	proc.Stop()
 
-	// Each message produces 2 Write calls (data bytes + "\n").
-	assert.Equal(t, total*2, out.Count(), "Stop must drain all %d enqueued messages", total)
+	// One Write call per record: the encoder terminates each record with "\n",
+	// so the post-processor writes the record and nothing else.
+	assert.Equal(t, total, out.Count(), "Stop must drain all %d enqueued messages", total)
 }
 
 // Test_Integration_StopIdempotent verifies that a second Stop call after

@@ -51,7 +51,7 @@ func Test_Shutdown_Idempotent(t *testing.T) {
 
 // Test_Shutdown_DrainsDefaultPostProcessor enqueues N messages into the default
 // post-processor, calls Shutdown, then asserts that the writer saw all events
-// (each message produces 2 Write calls: data + newline separator).
+// (one Write call per record).
 func Test_Shutdown_DrainsDefaultPostProcessor(t *testing.T) {
 	const msgCount = 5
 	out := &countingWriter{}
@@ -65,7 +65,7 @@ func Test_Shutdown_DrainsDefaultPostProcessor(t *testing.T) {
 	Shutdown()
 
 	// each message produces data write + "\n" write = 2 calls each
-	assert.Equal(t, msgCount*2, out.count(),
+	assert.Equal(t, msgCount, out.count(),
 		"Shutdown must drain all enqueued messages through the writer")
 }
 
@@ -86,6 +86,6 @@ func Test_Shutdown_BlocksUntilDrain(t *testing.T) {
 
 	// If Shutdown is truly synchronous, all writes must be done by the time
 	// Shutdown returns — no polling or waiting required here.
-	assert.Equal(t, msgCount*2, out.count(),
+	assert.Equal(t, msgCount, out.count(),
 		"Shutdown must block until all writes complete before returning")
 }

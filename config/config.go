@@ -783,6 +783,7 @@ func ProcessLogEvent(currentRing *mpscRingBuffer, done chan drainSignal) {
 					if ev, ok2 := currentRing.Pop(); ok2 {
 						dispatchTo(ev, sig.procs)
 						ReturnDispatchBuf(ev.Data)
+						currentRing.dispatched.Add(1)
 					}
 				}
 				return
@@ -799,15 +800,18 @@ func ProcessLogEvent(currentRing *mpscRingBuffer, done chan drainSignal) {
 		case sig := <-done:
 			dispatchTo(e, sig.procs)
 			ReturnDispatchBuf(e.Data)
+			currentRing.dispatched.Add(1)
 			for currentRing.Len() > 0 {
 				if ev, ok2 := currentRing.Pop(); ok2 {
 					dispatchTo(ev, sig.procs)
 					ReturnDispatchBuf(ev.Data)
+					currentRing.dispatched.Add(1)
 				}
 			}
 			return
 		default:
 			dispatchEvent(e)
+			currentRing.dispatched.Add(1)
 		}
 	}
 }

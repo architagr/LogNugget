@@ -48,7 +48,8 @@ func TestPublishMessageAndNoIO(t *testing.T) {
 // maxBucketSize messages triggers an async flush of exactly those messages.
 // With maxBucketSize=3, the swap fires on the 3rd append (append-first
 // semantics: append msg3 → len=3 >= max=3 → swap and spawn flush goroutine).
-// 3 messages × 2 Write calls (data + "\n") = 6 total writes.
+// 3 messages × 1 Write call each = 3 total writes (records are already
+// newline-terminated by the encoder).
 // msg4 arrives into a fresh bucket and stays there (rate=1min).
 func TestPublishMessageWithIOAfterBufferReached(t *testing.T) {
 	out := &mockWriter{}
@@ -64,12 +65,12 @@ func TestPublishMessageWithIOAfterBufferReached(t *testing.T) {
 	// under the lock; a goroutine is spawned to flush [1,2,3].
 	obj.PublishLogMessage([]byte("test message 3"))
 
-	// 3 messages × 2 writes each = 6 total writes, delivered asynchronously.
-	assert.Eventually(t, func() bool { return out.Count() == 6 }, 200*time.Millisecond, 10*time.Millisecond)
+	// 3 messages, one Write each, delivered asynchronously.
+	assert.Eventually(t, func() bool { return out.Count() == 3 }, 200*time.Millisecond, 10*time.Millisecond)
 
 	// msg4 arrives into the fresh bucket and stays buffered.
 	obj.PublishLogMessage([]byte("test message 4"))
-	assert.Equal(t, 6, out.Count())
+	assert.Equal(t, 3, out.Count())
 }
 
 // TestPublishMessageWithIOAfterRate verifies that the ticker-driven flush
@@ -87,6 +88,6 @@ func TestPublishMessageWithIOAfterRate(t *testing.T) {
 	obj.PublishLogMessage([]byte("test message 2"))
 	obj.PublishLogMessage([]byte("test message 3"))
 
-	// 3 messages × 2 writes each = 6 total writes, delivered by the ticker.
-	assert.Eventually(t, func() bool { return out.Count() == 6 }, 2*time.Second, 20*time.Millisecond)
+	// 3 messages, one Write each, delivered by the ticker.
+	assert.Eventually(t, func() bool { return out.Count() == 3 }, 2*time.Second, 20*time.Millisecond)
 }

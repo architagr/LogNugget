@@ -26,8 +26,8 @@ func Test_PostProcessor_StopDrainsActiveBucket(t *testing.T) {
 
 	obj.Stop()
 
-	// each message produces 2 Write calls (data + "\n")
-	assert.Equal(t, 10, out.Count(), "Stop must drain all 5 enqueued messages")
+	// one Write per record
+	assert.Equal(t, 5, out.Count(), "Stop must drain all 5 enqueued messages")
 }
 
 // Test_PostProcessor_StopSynchronous verifies that Stop returns only AFTER the
@@ -44,8 +44,8 @@ func Test_PostProcessor_StopSynchronous(t *testing.T) {
 
 	obj.Stop()
 
-	// If Stop is synchronous, out.Count() must be exactly 40 here (20 × 2).
-	assert.Equal(t, 40, out.Count(), "Stop must be synchronous: all writes complete before Stop returns")
+	// If Stop is synchronous, out.Count() must be exactly 20 here (one per record).
+	assert.Equal(t, 20, out.Count(), "Stop must be synchronous: all writes complete before Stop returns")
 }
 
 // Test_PostProcessor_StopIdempotent verifies that calling Stop twice does not
@@ -95,9 +95,9 @@ func Test_PostProcessor_StopWithInFlightFlush(t *testing.T) {
 	total := len(writes)
 	mu.Unlock()
 
-	// 10 messages × 2 Write calls each = 20. But we only care that at least
-	// the 5 stop-path messages are written; the tick-flushed ones may vary.
-	assert.GreaterOrEqual(t, total, 10, "Stop must drain stop-path messages; in-flight flush must also complete")
+	// 10 messages, one Write each. We only care that at least the 5 stop-path
+	// messages are written; the tick-flushed ones may vary.
+	assert.GreaterOrEqual(t, total, 5, "Stop must drain stop-path messages; in-flight flush must also complete")
 }
 
 // blockingWriter is an io.Writer that records calls into a shared slice.

@@ -32,8 +32,8 @@ func (w *safeCountWriter) Count() int {
 // and verifies that every message is eventually delivered after Stop().
 //
 // 100 goroutines × 1 000 publishes = 100 000 messages. Each message
-// produces exactly 2 Write calls (payload bytes + '\n'), so the expected
-// call count is 200 000. maxBucketSize is set high enough (110 000) so
+// produces exactly 1 Write call (the record, which already carries its own
+// terminator), so the expected call count is 100 000. maxBucketSize is set high enough (110 000) so
 // that no capacity-triggered flush fires mid-test; all messages drain on
 // Stop(), which blocks until the final flush goroutine completes.
 //
@@ -42,9 +42,9 @@ func Test_Race_PostProcessorPublish(t *testing.T) {
 	const goroutines = 100
 	const msgsPerGoroutine = 1_000
 	const totalMessages = goroutines * msgsPerGoroutine
-	// why: 2× because printMessage calls output.Write twice per entry:
-	// once for the payload and once for the '\n' separator.
-	const expectedWrites = totalMessages * 2
+	// why: one Write per record — the encoder terminates each record with
+	// "\n" (ARCH-14), so the post-processor must not add a separator of its own.
+	const expectedWrites = totalMessages
 
 	out := &safeCountWriter{}
 	// why: 10-minute rate prevents ticker flushes from firing during the
@@ -70,7 +70,7 @@ func Test_Race_PostProcessorPublish(t *testing.T) {
 	proc.Stop()
 
 	assert.Equal(t, expectedWrites, out.Count(),
-		"100_000 messages × 2 Write calls each must equal 200_000")
+		"100_000 messages × 1 Write call each must equal 100_000")
 }
 
 // Test_Race_StopWhileLogging verifies that calling Stop() concurrently with
