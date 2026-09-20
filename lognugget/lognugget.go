@@ -61,6 +61,10 @@ func init() {
 	defaultPostProc = proc
 	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, proc)
 	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
+	// Let config.SetOutput / SetRate / SetLogBufferMaxSize retune this
+	// collector; without the registration those setters would record values
+	// that nothing ever read.
+	config.RegisterDefaultSink(proc)
 }
 
 // Shutdown drains the default post-processor and blocks until all buffered

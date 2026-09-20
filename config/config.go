@@ -115,6 +115,13 @@ var atomicProcsSlice atomic.Pointer[[]preProcessingObserverContract]
 // without global shared-state races (issue #131 drain-race fix).
 type drainSignal struct {
 	procs *[]preProcessingObserverContract
+	// ack is closed by the draining goroutine just before it returns, so
+	// resetConfig can retire the old epoch's pre-processors only once nobody
+	// is dispatching against them any more. why: clearing atomicProcsSlice
+	// while the old consumer was still in normal (non-drain) mode dropped
+	// every event it popped in that window — the drain-on-stop test lost
+	// ~12% of its events under -shuffle.
+	ack chan struct{}
 }
 
 // ringDoneCh is sent-to by resetConfig to signal the current ProcessLogEvent
@@ -461,9 +468,16 @@ func SetOutput(output io.Writer) {
 		output = DefaultOutput
 	}
 	configMu.Lock()
-	defer configMu.Unlock()
 	defaultConfig.output = output
 	storeHotSnapshot()
+	configMu.Unlock()
+
+	// Retune the built-in collector outside the config lock: it takes its own
+	// mutex, and holding both would order two locks that are otherwise
+	// unrelated.
+	if sink := loadDefaultSink(); sink != nil {
+		sink.SetOutput(output)
+	}
 }
 
 // PublishLog sends Data onto the dispatch channel. Safe for concurrent use;
@@ -495,9 +509,13 @@ func SetLogBufferMaxSize(size int) {
 		size = 20 // Default buffer size
 	}
 	configMu.Lock()
-	defer configMu.Unlock()
 	defaultConfig.logBufferMaxSize = size
 	storeHotSnapshot()
+	configMu.Unlock()
+
+	if sink := loadDefaultSink(); sink != nil {
+		sink.SetMaxBucketSize(size)
+	}
 }
 
 // SetRate sets the rate at which buffered logs are pushed to output.
@@ -510,9 +528,13 @@ func SetRate(rate time.Duration) {
 		rate = 1 * time.Second // Default rate is 1 sec
 	}
 	configMu.Lock()
-	defer configMu.Unlock()
 	defaultConfig.rate = rate
 	storeHotSnapshot()
+	configMu.Unlock()
+
+	if sink := loadDefaultSink(); sink != nil {
+		sink.SetRate(rate)
+	}
 }
 
 // restrictedFieldsSet is the O(1) replacement for the former restrictedFields
@@ -683,6 +705,13 @@ func GetChannelCapacity() int {
 
 // RegisterHook registers hook to be invoked whenever a log event at
 // level is dispatched. Safe for concurrent use.
+//
+// Deprecated: this registry is not consulted by the dispatch path — a hook
+// registered here never receives an event. Fan-out is owned by the
+// pre-processor stage; register with
+// pipelineStage.EventPreProcessorObj.RegisterHook(level, hook) instead, which
+// is what the zero-config pipeline itself uses. Kept only so existing callers
+// still compile; it will be removed in the next major release.
 func RegisterHook(level enum.LogLevel, hook PublishLogMessageHookContract) {
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -697,6 +726,10 @@ func RegisterHook(level enum.LogLevel, hook PublishLogMessageHookContract) {
 // DeRegisterHook removes the hook identified by hookName from level's
 // handler set. It is a no-op if the level or name is unknown. Safe for
 // concurrent use.
+//
+// Deprecated: the registry it mutates is not consulted by the dispatch path.
+// Use pipelineStage.EventPreProcessorObj.DeRegisterHook instead. See
+// [RegisterHook].
 func DeRegisterHook(level enum.LogLevel, hookName string) {
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -769,6 +802,13 @@ func GetConfig() *Config {
 // the channel mutex from the consumer hot path, completing the V3 sub-500 ns
 // target.
 func ProcessLogEvent(currentRing *mpscRingBuffer, done chan drainSignal) {
+	// ackDrain tells resetConfig that this epoch's consumer has finished, so
+	// the old pre-processor snapshot can be retired.
+	ackDrain := func(sig drainSignal) {
+		if sig.ack != nil {
+			close(sig.ack)
+		}
+	}
 
 	for {
 		e, ok := currentRing.Pop()
@@ -786,6 +826,7 @@ func ProcessLogEvent(currentRing *mpscRingBuffer, done chan drainSignal) {
 						currentRing.dispatched.Add(1)
 					}
 				}
+				ackDrain(sig)
 				return
 			default:
 				runtime.Gosched()
@@ -808,6 +849,7 @@ func ProcessLogEvent(currentRing *mpscRingBuffer, done chan drainSignal) {
 					currentRing.dispatched.Add(1)
 				}
 			}
+			ackDrain(sig)
 			return
 		default:
 			dispatchEvent(e)
@@ -948,8 +990,12 @@ func resetConfig() {
 	// The drain goroutine receives this snapshot via drainSignal so it can
 	// dispatch remaining ring events to the OLD pre-processors even after the
 	// new epoch's empty slice is stored (issue #131 drain-race fix).
+	//
+	// The clear itself is deferred until the old consumer acknowledges the
+	// drain (below): while it is still in normal mode it dispatches against
+	// atomicProcsSlice, so clearing here silently dropped every event it
+	// popped between this point and its next look at the done channel.
 	oldProcs = atomicProcsSlice.Load()
-	rebuildProcsSlice()
 	// why: restrictedFieldsSet must be rebuilt here so that
 	// ValidateandParseLogField works correctly from the very first call —
 	// even before any SetDefaultFields call is made. This is the fix for D-8:
@@ -975,10 +1021,28 @@ func resetConfig() {
 	// the goroutine hasn't been scheduled yet. nil on the very first call from
 	// init (before any goroutine has started).
 	if oldDoneCh != nil {
-		oldDoneCh <- drainSignal{procs: oldProcs}
+		ack := make(chan struct{})
+		oldDoneCh <- drainSignal{procs: oldProcs, ack: ack}
+		// Wait for the previous epoch's consumer to finish before retiring its
+		// pre-processors. Bounded so a hook wedged on slow IO cannot deadlock
+		// a reset; on timeout the clear proceeds and the straggler dispatches
+		// against its own snapshot, which is still valid memory.
+		select {
+		case <-ack:
+		case <-time.After(drainAckTimeout):
+		}
 	}
+
+	configMu.Lock()
+	rebuildProcsSlice()
+	configMu.Unlock()
+
 	go ProcessLogEvent(newRing, newDoneCh)
 }
+
+// drainAckTimeout bounds how long resetConfig waits for the previous epoch's
+// consumer goroutine to finish draining.
+const drainAckTimeout = 2 * time.Second
 
 // MinLevel returns the minimum log level. Safe for concurrent use.
 func (c *Config) MinLevel() enum.LogLevel {

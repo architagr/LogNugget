@@ -216,6 +216,48 @@ func (h *unsetLogEventPostProcessor) Name() string {
 	return "unsetLogEventPostProcessor"
 }
 
+// SetOutput redirects subsequent writes to output. Records already flushed are
+// unaffected; records still pending in the bucket are written to the new
+// output when the bucket next flushes. Passing nil is a no-op.
+//
+// why: config.SetOutput is documented as "the output writer for the default
+// collector", and the default collector is this type. Without a runtime
+// setter that call could only ever change a struct field nobody read.
+func (h *unsetLogEventPostProcessor) SetOutput(output io.Writer) {
+	if output == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.output = output
+}
+
+// SetRate changes the interval at which buffered records are flushed. Values
+// ≤ 0 are ignored. The change takes effect from the next tick.
+func (h *unsetLogEventPostProcessor) SetRate(rate time.Duration) {
+	if rate <= 0 {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.rate = rate
+	h.ticker.Reset(rate)
+}
+
+// SetMaxBucketSize changes how many records accumulate before a size-triggered
+// flush. Values ≤ 0 are ignored.
+//
+// Lowering the threshold below the number of records already pending does not
+// flush them immediately; they go out on the next publish or tick.
+func (h *unsetLogEventPostProcessor) SetMaxBucketSize(size int) {
+	if size <= 0 {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.maxBucketSize = size
+}
+
 // Stop signals the processor to shut down and blocks until the active bucket
 // is fully drained and all writes complete. Idempotent: a second call is a
 // no-op and returns immediately. D-11 / SC5.
