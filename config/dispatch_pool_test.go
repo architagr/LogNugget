@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/config"
+	"github.com/architagr/lognugget/v4/config"
 )
 
 func TestGetDispatchBuf_LenZero(t *testing.T) {

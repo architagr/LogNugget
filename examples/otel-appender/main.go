@@ -9,10 +9,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/enum"
-	pipelineStage "github.com/architagr/lognugget/pipeline_stage"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/entry"
+	"github.com/architagr/lognugget/v4/enum"
+	pipelineStage "github.com/architagr/lognugget/v4/pipeline_stage"
 	"go.opentelemetry.io/otel/trace"
 )
 

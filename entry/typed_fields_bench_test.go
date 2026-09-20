@@ -6,11 +6,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/enum"
-	"github.com/architagr/lognugget/model"
-	"github.com/architagr/lognugget/test/support"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/entry"
+	"github.com/architagr/lognugget/v4/enum"
+	"github.com/architagr/lognugget/v4/model"
+	"github.com/architagr/lognugget/v4/test/support"
 )
 
 // BenchmarkLogEntry_TypedFields_10 measures the hot path for 10 typed fields

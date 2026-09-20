@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/architagr/lognugget/config"
+	"github.com/architagr/lognugget/v4/config"
 )
 
 // Immediate configures the collector to write every record as soon as it

@@ -5,7 +5,7 @@ package entry
 import (
 	"context"
 
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // LogWithBadSkip calls logWithSkip with an artificially large skip depth so

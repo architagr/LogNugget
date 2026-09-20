@@ -9,8 +9,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // Test_GetAtomicMinLevel_AfterSetMinLevel asserts that SetMinLevel stores the

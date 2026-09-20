@@ -7,10 +7,10 @@ package main
 import (
 	"context"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/entry"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/entry"
 	"github.com/architagr/lognugget/examples/cookbook/internal/demo"
-	"github.com/architagr/lognugget/lognugget"
+	"github.com/architagr/lognugget/v4/lognugget"
 )
 
 type ctxKey string

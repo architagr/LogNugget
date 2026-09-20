@@ -9,7 +9,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/architagr/lognugget/entry"
+	"github.com/architagr/lognugget/v4/entry"
 )
 
 // BenchmarkTimestamp_Direct measures the hot path with the direct

@@ -3,7 +3,7 @@ package entry
 import (
 	"sync"
 
-	"github.com/architagr/lognugget/config"
+	"github.com/architagr/lognugget/v4/config"
 )
 
 // entryPool is the package-level sync.Pool backing NewLogEntry and Put.

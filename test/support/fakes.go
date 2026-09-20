@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // FakeWriter is a thread-safe io.Writer that records every byte

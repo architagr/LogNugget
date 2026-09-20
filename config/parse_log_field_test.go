@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/architagr/lognugget/config"
+	"github.com/architagr/lognugget/v4/config"
 )
 
 // parseKV wraps the AppendField output in a JSON object brace pair so that

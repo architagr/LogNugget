@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/architagr/lognugget/encoder"
-	support "github.com/architagr/lognugget/test/support"
+	"github.com/architagr/lognugget/v4/encoder"
+	support "github.com/architagr/lognugget/v4/test/support"
 )
 
 // Test_JSONEncoder_RFC8259_Roundtrip verifies that 1000 corpus bodies,

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/architagr/lognugget/config"
+	"github.com/architagr/lognugget/v4/config"
 )
 
 // Test_TimeNow_UTC verifies that Now() always returns a time value in

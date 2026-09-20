@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // Test_PublishLog_NoConfigMuRLock proves that PublishLog does not call

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/entry"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/entry"
 )
 
 type ctxBenchKey string

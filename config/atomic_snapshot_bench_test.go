@@ -5,8 +5,8 @@ package config_test
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 // BenchmarkLogEntry_FilteredPath measures the atomic level-gate cost when

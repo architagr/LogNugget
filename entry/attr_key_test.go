@@ -6,8 +6,8 @@ package entry_test
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/model"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/model"
 )
 
 // Test_LogAttr_KeyCostsNoAllocation pins the property V4-P4 (#135) asked for.

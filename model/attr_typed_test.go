@@ -5,7 +5,7 @@ package model_test
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/model"
+	"github.com/architagr/lognugget/v4/model"
 )
 
 // Test_Str_KindAndValue verifies that Str sets KindStr and stores the string

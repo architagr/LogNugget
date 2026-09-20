@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/architagr/lognugget/entry"
+	"github.com/architagr/lognugget/v4/entry"
 )
 
 // Benchmark_Log_Parallel_OtelCtx measures the hot path when a

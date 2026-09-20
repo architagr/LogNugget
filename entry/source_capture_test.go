@@ -15,10 +15,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/enum"
-	"github.com/architagr/lognugget/test/support"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/entry"
+	"github.com/architagr/lognugget/v4/enum"
+	"github.com/architagr/lognugget/v4/test/support"
 )
 
 // resetAndSpyWithAddSource resets the singleton to JSON/Debug defaults with
@@ -59,7 +59,7 @@ func Test_LogEntry_CallerCapture_WhenAddSource_True(t *testing.T) {
 	}
 	// Verify skip depth: the reported function must be this test function.
 	// runtime.Caller returns the fully-qualified name, e.g.
-	// "github.com/architagr/lognugget/entry_test.Test_LogEntry_CallerCapture_WhenAddSource_True".
+	// "github.com/architagr/lognugget/v4/entry_test.Test_LogEntry_CallerCapture_WhenAddSource_True".
 	if !strings.Contains(callerVal, "Test_LogEntry_CallerCapture_WhenAddSource_True") {
 		t.Errorf("SC3: 'caller' field %q must contain the calling function name; want 'Test_LogEntry_CallerCapture_WhenAddSource_True'; payload: %s", callerVal, raw)
 	}

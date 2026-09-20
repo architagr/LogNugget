@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/architagr/lognugget/enum"
+	"github.com/architagr/lognugget/v4/enum"
 )
 
 func Test_DefaultEncoderFactory_KnownTypes(t *testing.T) {

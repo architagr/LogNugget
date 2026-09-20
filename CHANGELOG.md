@@ -11,6 +11,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.0.1] - 2026-09-20
+
+### Fixed
+
+- **The module is installable again.** `go.mod` declared `module github.com/architagr/lognugget` with no major-version suffix, so Go rejected every v2, v3 and v4 tag:
+
+  ```
+  go: github.com/architagr/lognugget@v4.0.0: invalid version: module contains a
+  go.mod file, so module path must match major version ("github.com/architagr/lognugget/v4")
+  ```
+
+  The module proxy only ever served v1.0.0 — v2.0.0 through v4.0.0 could not be
+  fetched by anyone. The module path is now `github.com/architagr/lognugget/v4`
+  and all internal imports, example modules and documentation follow it.
+
+### Migrating
+
+Update the import path to include the major version:
+
+```go
+import (
+    "github.com/architagr/lognugget/v4/entry"
+    "github.com/architagr/lognugget/v4/lognugget"
+)
+```
+
+```bash
+go get github.com/architagr/lognugget/v4
+```
+
+No API changes: v4.0.1 is v4.0.0 with a usable module path. Anyone still on
+v1.0.0 — the only version that was ever installable — should read the 4.0.0
+notes below before upgrading.
+
+---
+
 ## [4.0.0] - 2026-09-20
 
 Epic V4. Performance work, plus the correctness defects that re-measuring it
@@ -296,7 +332,7 @@ All other v1 call sites are source-compatible with v2.
 - **RFC 8259 JSON escaping** — all string field values escaped per spec; no log-injection via crafted field values (Epic B behavior gaps).
 - **Context-fields parser** (`config.SetContextFieldsParser`) — per-call `map[string]any` propagating trace/span/request IDs from `context.Context` (Epic B).
 - **`lognugget.Shutdown()`** — blocks until all buffered events are flushed; safe to `defer` in `main()` or a signal handler (Epic D lifecycle).
-- **Zero-config init** — importing `_ "github.com/architagr/lognugget/lognugget"` starts the async pipeline with sensible defaults; no `NewLogger()` required.
+- **Zero-config init** — importing `_ "github.com/architagr/lognugget/v4/lognugget"` starts the async pipeline with sensible defaults; no `NewLogger()` required.
 - **Static env fields parser** (`config.SetStaticEnvFieldsParser`) — once-evaluated fields (hostname, service name) injected into every log line.
 - **`pipeline_stage.Stop()`** — graceful per-stage shutdown separating drain from teardown (Epic D).
 - **Full test suite** — table-driven tests + race-detector runs for all public APIs; codecov gating on CI (Epic A test hygiene).
@@ -308,7 +344,8 @@ All other v1 call sites are source-compatible with v2.
 
 ---
 
-[Unreleased]: https://github.com/architagr/LogNugget/compare/v4.0.0...HEAD
+[Unreleased]: https://github.com/architagr/LogNugget/compare/v4.0.1...HEAD
+[4.0.1]: https://github.com/architagr/LogNugget/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/architagr/LogNugget/compare/v3.0.1...v4.0.0
 [3.0.1]: https://github.com/architagr/LogNugget/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/architagr/LogNugget/compare/v2.0.3...v3.0.0

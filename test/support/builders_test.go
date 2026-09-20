@@ -13,9 +13,9 @@ import (
 	"io"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/enum"
-	"github.com/architagr/lognugget/test/support"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/enum"
+	"github.com/architagr/lognugget/v4/test/support"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

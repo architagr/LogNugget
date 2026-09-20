@@ -262,7 +262,7 @@ Success metrics that are explicitly **not** v1 acceptance criteria (deferred per
 
 ## 10. Rollout / Release Plan
 
-- **Distribution**: Go module published as `github.com/architagr/lognugget`. Consumers pin via `go get`. There is no service deployment, no staged rollout, no feature-flag system. The Architect should not design feature flags.
+- **Distribution**: Go module published as `github.com/architagr/lognugget/v4`. Consumers pin via `go get`. There is no service deployment, no staged rollout, no feature-flag system. The Architect should not design feature flags.
 - **Versioning**: SemVer. `v1.0.0` is the GA target tagged at the end of M5 (2026-07-22). All v1 changes that follow will be `v1.x.y` with strict semver discipline.
 - **Branch & tag flow**: per `CLAUDE.md` "Git Branching & Release Conventions":
   - All v1 work flows through `feat/<n>-<slug>` feature branches off `develop`.

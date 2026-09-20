@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/encoder"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/encoder"
 )
 
 // SlowHook implements config.PublishLogMessageHookContract and blocks

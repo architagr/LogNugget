@@ -53,7 +53,7 @@ LogNugget has no human end-users. Its actors are:
 
 | Actor | Type | How they interact |
 |---|---|---|
-| **Library Consumer** (Go application developer) | Direct, primary | Imports `github.com/architagr/lognugget`, configures it once at startup, calls `entry.NewLogEntry().Info(ctx, msg, fields...)` on hot paths. |
+| **Library Consumer** (Go application developer) | Direct, primary | Imports `github.com/architagr/lognugget/v4`, configures it once at startup, calls `entry.NewLogEntry().Info(ctx, msg, fields...)` on hot paths. |
 | **Operations / SRE team** | Indirect | Reads the rendered log lines that LogNugget writes to the consumer's configured `io.Writer` (typically stdout in containerized environments). |
 | **Observability platform** (ELK, Loki, Datadog, custom) | Indirect, integration | Receives events via registered hooks (`PublishLogMessageHookContract`) when the consumer attaches a forwarder. Or scrapes stdout. |
 | **Process supervisor** (k8s, systemd, the host OS) | Indirect | Sends `SIGTERM`; the consumer's shutdown handler must call `Stop()` on the post-processor to drain pending logs. |
@@ -67,7 +67,7 @@ LogNugget has no human end-users. Its actors are:
 The consumer imports the library, performs no configuration, and starts logging. Result: events are encoded as JSON, batched, and written to `os.Stdout` with default field names, RFC822 UTC timestamps, source capture enabled, min level Info, buffer size 20, flush rate 1 s.
 
 ```go
-import "github.com/architagr/lognugget/entry"
+import "github.com/architagr/lognugget/v4/entry"
 entry.NewLogEntry().Info(ctx, "ready")
 ```
 

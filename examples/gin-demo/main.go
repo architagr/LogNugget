@@ -9,11 +9,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/enum"
-	"github.com/architagr/lognugget/model"
-	pipelineStage "github.com/architagr/lognugget/pipeline_stage"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/entry"
+	"github.com/architagr/lognugget/v4/enum"
+	"github.com/architagr/lognugget/v4/model"
+	pipelineStage "github.com/architagr/lognugget/v4/pipeline_stage"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 )

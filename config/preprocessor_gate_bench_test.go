@@ -6,8 +6,8 @@ package config_test
 import (
 	"testing"
 
-	"github.com/architagr/lognugget/config"
-	"github.com/architagr/lognugget/test/support"
+	"github.com/architagr/lognugget/v4/config"
+	"github.com/architagr/lognugget/v4/test/support"
 )
 
 // BenchmarkHasEventPreProcessors measures the hot-path cost of HasEventPreProcessors

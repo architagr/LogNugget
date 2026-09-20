@@ -131,7 +131,7 @@ Rules:
 
 Pattern: Builder (fluent), Fixture (file-backed), Recording channel (drain assertions).
 
-All helpers live in `test/support/`. Imported as `support "github.com/architagr/lognugget/test/support"`.
+All helpers live in `test/support/`. Imported as `support "github.com/architagr/lognugget/v4/test/support"`.
 
 | Helper | Pattern | Sketch |
 |---|---|---|

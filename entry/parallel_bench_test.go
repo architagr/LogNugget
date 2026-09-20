@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/architagr/lognugget/entry"
+	"github.com/architagr/lognugget/v4/entry"
 )
 
 // BenchmarkLognugget_Parallel_10CtxFields is the package-level integration
