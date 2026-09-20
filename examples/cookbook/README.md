@@ -11,13 +11,13 @@ go run ./01-quickstart
 | # | Example | Answers |
 |---|---------|---------|
 | 01 | [`01-quickstart`](01-quickstart) | What is the least I have to write? |
-| 02 | [`02-fields`](02-fields) | How do I attach data to a record — and what if I have none? |
+| 02 | [`02-fields`](02-fields) | How do I attach data to a record, and what if I have none? |
 | 03 | [`03-context`](03-context) | How do trace IDs and per-request fields get in? |
 | 04 | [`04-configuration`](04-configuration) | What can I configure, and what does each knob change? |
 | 05 | [`05-hooks`](05-hooks) | How do I send records to more than one place? |
 | 06 | [`06-tuning`](06-tuning) | How do I trade latency for fewer writes? |
 
-## 01 — quickstart
+## 01. quickstart
 
 ```go
 import (
@@ -34,20 +34,21 @@ func main() {
 Importing `lognugget` builds the pipeline. `Shutdown` drains it. That is the
 whole setup.
 
-## 02 — fields
+## 02. fields
 
 Three ways to attach data:
 
-- **Typed chain methods** — `Str`, `Int`, `Uint`, `Float64`, `Bool`, `Err`,
-  `Any`. These write straight into the record buffer with no boxing. Use these.
-- **Variadic `model.LogAttr`** — for fields assembled elsewhere and passed as a
-  slice.
-- **No fields at all** — a bare message is a complete record.
+Typed chain methods (`Str`, `Int`, `Uint`, `Float64`, `Bool`, `Err`, `Any`)
+write straight into the record buffer with no boxing. Use these.
+
+Variadic `model.LogAttr` values suit fields assembled elsewhere and passed
+around as a slice. And a bare message with no fields at all is a complete
+record.
 
 A field whose key collides with a core key (`time`, `level`, `message`,
 `error`, `caller`) is written as `custom.<key>` rather than emitted twice.
 
-## 03 — context
+## 03. context
 
 Three strategies, highest precedence first:
 
@@ -59,7 +60,7 @@ Three strategies, highest precedence first:
 
 Register one at startup, not per request.
 
-## 04 — configuration
+## 04. configuration
 
 Every setter is optional; the defaults work unconfigured. They are
 startup-time settings.
@@ -68,13 +69,13 @@ startup-time settings.
 |--------|---------|---------|
 | `SetMinLevel` | `Info` | Records below this are rejected by an atomic gate |
 | `SetTimeFormat` | `time.RFC3339` | Timestamp layout |
-| `SetAddSource` | `false` | Adds the call site — the most expensive option there is |
+| `SetAddSource` | `false` | Adds the call site, the most expensive option there is |
 | `SetEncoderType` | `JSON` | `JSON` or `Text` |
 | `SetDefaultFields` | built-ins | Renames core keys to match an existing schema |
 | `SetStaticEnvFieldsParser` | none | Fields evaluated once, included in every record |
 | `SetOutput` | `os.Stdout` | Where the built-in collector writes |
 
-## 05 — hooks
+## 05. hooks
 
 A hook is `PublishLogMessage([]byte)` plus `Name() string`. Register it against
 a level, or against `LevelUnSet` to receive everything:
@@ -90,7 +91,7 @@ matches an existing one at that level replaces it.
 **The `[]byte` a hook receives is borrowed.** The dispatcher recycles that
 buffer as soon as the call returns; copy the bytes if you keep them.
 
-## 06 — tuning
+## 06. tuning
 
 Three knobs decide how long a record waits and how many writes it costs:
 
@@ -100,8 +101,8 @@ Three knobs decide how long a record waits and how many writes it costs:
 | `config.SetLogBufferMaxSize(n)` | Flush once `n` records are buffered |
 | `config.SetRate(d)` | Flush at least every `d` |
 
-Whichever trigger fires first wins. From the example's own output — 500
-records, one collector:
+Whichever trigger fires first wins. From the example's own output, 500
+records through one collector:
 
 ```
 configuration                        writes      bytes

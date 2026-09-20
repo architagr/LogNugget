@@ -14,7 +14,7 @@ const DefaultFlushTimeout = 5 * time.Second
 // been handed to all registered pre-processors, or until timeout elapses.
 // It reports whether the dispatcher drained in time.
 //
-// why: PublishLog returns as soon as the event is in the MPSC ring — that is
+// why: PublishLog returns as soon as the event is in the MPSC ring, which is
 // the whole point of the async pipeline. Stopping the output hooks without
 // draining the ring first therefore discards whatever the consumer goroutine
 // had not yet picked up, which is how a process that logged and exited

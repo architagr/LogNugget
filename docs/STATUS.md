@@ -23,11 +23,11 @@
 
 ---
 
-## SLO Progress — Hot-path Latency (< 1 µs target)
+## SLO progress: hot-path latency (< 1 µs target)
 
 ![SLO Progress](assets/slo-progress.svg)
 
-### Latency budget — where the caller's nanoseconds go
+### Latency budget: where the caller's nanoseconds go
 
 Measured on the V4 parallel hot path (~324 ns/op, 1 alloc, ~33 B). Everything
 after the ring push happens on another goroutine and does not bill the caller.
@@ -72,7 +72,7 @@ All figures Apple M1 Pro, GOMAXPROCS=8, parallel hot path unless noted.
 
 > ⚠️ **The V3 numbers are not comparable to V4's.** They were measured with a
 > 1M-entry `LogEntry` pool and with global state left behind by earlier
-> benchmarks in the same binary — chiefly `Benchmark_Log`'s legacy map context
+> benchmarks in the same binary, chiefly `Benchmark_Log`'s legacy map context
 > parser, which every later benchmark then paid for. V4 benchmarks run through
 > `setupBench`, which installs a clean configuration and a production-shaped
 > pool (`GOMAXPROCS × 64`), and tears both down afterwards. Re-measuring V3's
@@ -100,9 +100,9 @@ All figures Apple M1 Pro, GOMAXPROCS=8, parallel hot path unless noted.
 
 ---
 
-## Cross-Logger Comparison — 10 Context Fields
+## Cross-logger comparison, 10 context fields
 
-From `examples/bench/` — Apple M1 Pro, GOMAXPROCS=8, Go 1.26, output `io.Discard`.
+From `examples/bench/` on Apple M1 Pro, GOMAXPROCS=8, Go 1.26, output `io.Discard`.
 Context: trace_id, span_id, request_id, user_id, tenant_id, session_id, env, region, service, version.
 
 ### Parallel (8 goroutines)
@@ -137,8 +137,8 @@ Context: trace_id, span_id, request_id, user_id, tenant_id, session_id, env, reg
 >
 > **Where LogNugget wins:** when the sink has real latency. Against Loki over
 > HTTP at 10k rps the async pipeline sustains 6,016 rps at p95 417 ms with no
-> errors, while zerolog manages 1,094 rps at p95 4.72 s with 0.62% errors —
-> its handlers block on the POST. See `examples/loki-bench/`.
+> errors, while zerolog manages 1,094 rps at p95 4.72 s with 0.62% errors,
+> because its handlers block on the POST. See `examples/loki-bench/`.
 ---
 
 ## Epic A — Hygiene & Test Foundation ✅ COMPLETE
@@ -342,7 +342,7 @@ SLO miss (hot-path 2× over 1 µs) does NOT block v1.0.0 per project decision �
 
 ---
 
-## Epic V4 — Beat zerolog under real IO, and be correct while doing it
+## Epic V4: beat zerolog under real IO, and be correct while doing it
 
 > **Released:** v4.0.0 · merged via PR [#138](https://github.com/architagr/LogNugget/pull/138)
 
@@ -362,10 +362,10 @@ introduced data corruption.
 | BENCH | [#137](https://github.com/architagr/LogNugget/issues/137) — loki-bench harness (k6 + Loki + Grafana) | ✅ MERGED |
 | P1 | [#132](https://github.com/architagr/LogNugget/issues/132) — `config.SetSyncMode` opt-in synchronous dispatch | ✅ MERGED (target missed, see below) |
 | P4 | [#135](https://github.com/architagr/LogNugget/issues/135) — string key in `model.LogAttr` | ✅ NO CHANGE NEEDED (see below) |
-| — | `SetContextFields` — typed per-request context API | ✅ MERGED |
+| (none) | `SetContextFields`, the typed per-request context API | ✅ MERGED |
 | C1 | Buffer-reuse corruption fix: hook copies into a pooled arena | ✅ DONE |
 | C2 | `config.FlushDispatch` + `Shutdown` drains the dispatch ring | ✅ DONE |
-| C3 | Single writer goroutine per collector — records keep publication order | ✅ DONE |
+| C3 | Single writer goroutine per collector, so records keep publication order | ✅ DONE |
 | C4 | One `Write` per flush batch, so `SetLogBufferMaxSize` does something | ✅ DONE |
 | C5 | `SetOutput` / `SetRate` / `SetLogBufferMaxSize` wired to the collector | ✅ DONE |
 | C6 | `Any` composite values emit valid JSON; chain methods honour reserved keys | ✅ DONE |
@@ -378,11 +378,11 @@ introduced data corruption.
 
 | # | Story | Outcome |
 |---|-------|---------|
-| P1 | [#132](https://github.com/architagr/LogNugget/issues/132) — optional sync write path | ⚠️ DELIVERED, TARGET MISSED. `config.SetSyncMode` ships and removes the ring push, but the issue's goal — ≤ 110 ns/op parallel, beating zerolog — is not reachable this way. Measured: serial ~356 ns/op (−18% vs async), parallel ~385 ns/op (**+16%**, i.e. slower). Bypassing the queue moves contention onto the sink: eight goroutines then serialise on the collector instead of amortising a lock-free push. The issue's literal design — write straight to `io.Writer` under a global mutex — is logrus's architecture, which this repo's own benchmark measures at ~6,155 ns/op at eight goroutines. Sync mode is kept because it is genuinely better serially and for fast local sinks, and it is documented as such rather than as a zerolog-beater. |
+| P1 | [#132](https://github.com/architagr/LogNugget/issues/132) — optional sync write path | ⚠️ DELIVERED, TARGET MISSED. `config.SetSyncMode` ships and removes the ring push, but the issue's goal of ≤ 110 ns/op parallel, beating zerolog, is not reachable this way. Measured: serial ~356 ns/op (−18% vs async), parallel ~385 ns/op (**+16%**, i.e. slower). Bypassing the queue moves contention onto the sink: eight goroutines then serialise on the collector instead of amortising a lock-free push. The issue's literal design, writing straight to `io.Writer` under a global mutex, is logrus's architecture, which this repo's own benchmark measures at ~6,155 ns/op at eight goroutines. Sync mode is kept because it is genuinely better serially and for fast local sinks, and it is documented as such rather than as a zerolog-beater. |
 | P4 | [#135](https://github.com/architagr/LogNugget/issues/135) — `string` key in `model.LogAttr` | ✅ ALREADY SATISFIED. The issue assumed `LogAttr.Key` was `[]byte` and that `entry.go` paid a `string([]byte)` conversion per field. `LogAttrKey` has been declared `string` since the first configuration commit (046fba1), so the conversion is string→string: no copy, no allocation. Pinned by `entry/attr_key_test.go` so the type cannot regress. No code change was warranted. |
 
 > An earlier revision of this document claimed #132 and #135 had "no recorded
-> scope". That was wrong — both carry full specifications on GitHub; neither
+> scope". That was wrong: both carry full specifications on GitHub, and neither
 > had left any trace in the repository, which is what the claim was actually
 > based on.
 
@@ -400,9 +400,9 @@ reordered, or dropped at shutdown. Allocations went the other way: 2/op → 1/op
 | `Shutdown` never drained the MPSC ring | A log-then-exit process lost its last records |
 | One flush goroutine per batch | Records written out of order |
 | Batching did not reduce writes | 500-record bucket still cost 500 writes |
-| `SetOutput` / `SetRate` / `SetLogBufferMaxSize` | Wrote to struct fields nothing read — no runtime effect at all |
+| `SetOutput` / `SetRate` / `SetLogBufferMaxSize` | Wrote to struct fields nothing read, so no runtime effect at all |
 | `config.RegisterHook` | Filled a map the dispatch path never consults; hooks registered there never fired. Now deprecated |
-| `Any` with a slice/map/struct | Emitted `"k":[1s 2s]` — the whole record failed to parse |
+| `Any` with a slice/map/struct | Emitted `"k":[1s 2s]`, so the whole record failed to parse |
 | Chain methods vs reserved keys | `Str("time", …)` produced two `"time"` members in one object |
 | Every record double-newline terminated | A blank line between every pair of records |
 | Static fields separator | `", "` where everything else used `","` |
