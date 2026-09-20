@@ -12,7 +12,7 @@ import (
 // The zero-config pipeline creates one buffering collector (see package
 // lognugget) and registers it here. why: SetOutput, SetRate and
 // SetLogBufferMaxSize describe that collector's behaviour, but the collector
-// lives in package pipelineStage, which package config must not import — the
+// lives in package pipelineStage, which package config must not import: the
 // dependency runs the other way. An interface registered at init keeps the
 // documented setters working without inverting the package graph.
 //

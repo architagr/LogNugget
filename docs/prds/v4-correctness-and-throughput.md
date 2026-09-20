@@ -1,12 +1,12 @@
-# PRD: Epic V4 — Beat zerolog under real IO, and be correct while doing it
+# PRD: Epic V4, beat zerolog under real IO and be correct while doing it
 
 | Field | Value |
 |---|---|
 | Feature slug | `v4-beat-zerolog` |
-| Status | IN PROGRESS — correctness and tooling work complete, release not cut |
+| Status | DELIVERED. Released as v4.0.0, with the module-path fix in v4.0.1 |
 | Author | Project Lead |
 | Date | 2026-09-20 |
-| Target branch | `feat/v4-beat-zerolog` → `develop` → `main` |
+| Target branch | `feat/131-v4-beat-zerolog` to `develop` to `main` |
 
 ---
 
@@ -54,7 +54,7 @@ configuration table would change nothing and have no way to tell.
 
 **Gates that could not run.** `go test ./...` panicked on Go 1.26,
 `golangci-lint run` refused to start against a v1 config schema, and the
-performance gate — a documented merge blocker — ran in no workflow at all. Its
+performance gate, a documented merge blocker, ran in no workflow at all. Its
 regression half was keyed off `benchstat`'s exit code, which is 0 whether or
 not anything regressed.
 
@@ -67,9 +67,9 @@ not anything regressed.
 | ID | Story | Rationale |
 |---|---|---|
 | P2 | Dispatch buffer pool | Removes a `make()` per call |
-| P3 | Single-slab `LogEntry` | Cold pool miss: 3 allocations → 1 |
+| P3 | Single-slab `LogEntry` | Cold pool miss: 3 allocations down to 1 |
 | P5 | `Err` / `Any` chain methods | Completes the typed field API |
-| — | `SetContextFields` typed context API | Replaces raw `[]byte` handling for most callers |
+| (none) | `SetContextFields` typed context API | Replaces raw `[]byte` handling for most callers |
 | BENCH | loki-bench harness | Measures the claim that actually matters: latency under a real sink |
 | C1 | Copy records into a pooled arena in the collector | Fixes buffer-reuse corruption |
 | C2 | `FlushDispatch` + drain-on-`Shutdown` | Fixes record loss at exit |
@@ -108,15 +108,15 @@ not anything regressed.
 ## 5. Acceptance criteria
 
 1. A concurrency test writes N records from 8 goroutines and reads back exactly
-   N parseable records with no duplicates — `test/integration/buffer_reuse_test.go`.
-2. A record logged immediately before `Shutdown` reaches the writer —
+   N parseable records with no duplicates, `test/integration/buffer_reuse_test.go`.
+2. A record logged immediately before `Shutdown` reaches the writer:
    `test/integration/flush_dispatch_test.go`.
-3. Records arrive at the writer in publication order —
+3. Records arrive at the writer in publication order:
    `test/integration/ordering_test.go`.
 4. Each of `SetOutput`, `SetRate`, `SetLogBufferMaxSize` changes observable
-   behaviour — `test/integration/runtime_config_test.go`.
+   behaviour, `test/integration/runtime_config_test.go`.
 5. `Any` produces parseable JSON for slices, maps, structs and durations;
-   reserved keys appear exactly once — `entry/record_validity_test.go`.
+   reserved keys appear exactly once, `entry/record_validity_test.go`.
 6. `go test ./...`, `golangci-lint run` and `./scripts/bench-check.sh` all pass,
    and all three run in CI.
 7. Every cookbook example compiles, runs, and its output matches the README.

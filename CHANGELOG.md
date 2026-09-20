@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   go.mod file, so module path must match major version ("github.com/architagr/lognugget/v4")
   ```
 
-  The module proxy only ever served v1.0.0 — v2.0.0 through v4.0.0 could not be
+  The module proxy only ever served v1.0.0. v2.0.0 through v4.0.0 could not be
   fetched by anyone. The module path is now `github.com/architagr/lognugget/v4`
   and all internal imports, example modules and documentation follow it.
 
@@ -42,7 +42,7 @@ go get github.com/architagr/lognugget/v4
 ```
 
 No API changes: v4.0.1 is v4.0.0 with a usable module path. Anyone still on
-v1.0.0 — the only version that was ever installable — should read the 4.0.0
+v1.0.0, the only version that was ever installable, should read the 4.0.0
 notes below before upgrading.
 
 ---
@@ -104,45 +104,45 @@ uncovered.
   `","`.
 - **Tests panicked on Go 1.26.** `testing.AllocsPerRun` now refuses to run
   inside a parallel test; three zero-alloc guards called it from one.
-- **`golangci-lint run` could not start** — `.golangci.yml` was still the v1
+- `golangci-lint run` could not start: `.golangci.yml` was still the v1
   schema. Migrated to v2.
 - **`resetConfig` dropped events during an epoch switch**, clearing the old
   pre-processors before the old consumer had finished with them.
 
 ### Added
 
-- **`config.SetSyncMode(bool)`** (V4-P1) — opt-in synchronous dispatch: the
+- `config.SetSyncMode(bool)` (V4-P1) is opt-in synchronous dispatch: the
   caller delivers the record to the hooks itself and the ring is not used.
   ~18% faster serially (~356 vs ~435 ns/op) and ~16% slower at eight
   goroutines (~385 vs ~331 ns/op), because bypassing the queue moves
   contention onto the sink. Intended for a fast local sink where single-call
   latency matters; with a network sink every logging goroutine blocks on it.
-  Hooks still fan out — an earlier design wrote straight to the `io.Writer`,
+  Hooks still fan out. An earlier design wrote straight to the `io.Writer`,
   which would have silently stopped every registered hook.
 
-- **`config.SetContextFields`** — typed per-request context fields via
+- `config.SetContextFields` adds typed per-request context fields via
   `*config.CtxFields` (`Str`, `Int`, `Uint`, `Bool`, `Float64`). Replaces raw
   `[]byte` handling for most callers; `SetContextFieldsAppender` remains for
   power users and `SetContextFieldsParser` is the deprecated map-based path.
-- **`config.FlushDispatch(timeout)`** — drains the dispatch ring without
+- `config.FlushDispatch(timeout)` drains the dispatch ring without
   stopping hooks. Useful in tests and custom shutdown paths.
-- **`config.RegisterDefaultSink`** — lets a custom collector be retuned by the
+- `config.RegisterDefaultSink` lets a custom collector be retuned by the
   package-level setters.
-- **`config.SafeFieldKey`** — the reserved-key check used by the chain methods.
+- `config.SafeFieldKey` is the reserved-key check used by the chain methods.
 - **`entry.LogEntry.Err` and `.Any`** chain methods (V4-P5).
 - **Dispatch buffer pool** (`config.GetDispatchBuf` / `ReturnDispatchBuf`),
   removing a `make()` per call on the hot path (V4-P2).
-- **Single-slab `LogEntry`** — `pendingBuf` is backed by an inline 256 B array,
+- Single-slab `LogEntry`: `pendingBuf` is backed by an inline 256 B array,
   so a cold pool miss costs one allocation instead of three (V4-P3).
-- **[`examples/cookbook`](examples/cookbook)** — six runnable programs:
+- [`examples/cookbook`](examples/cookbook) holds six runnable programs:
   quickstart, fields, context, configuration, hooks, tuning.
-- **[`examples/loki-bench`](examples/loki-bench)** — two HTTP servers, a k6
+- [`examples/loki-bench`](examples/loki-bench) has two HTTP servers, a k6
   script and a Loki + Grafana compose file, for measuring handler latency
   against a real sink (V4-BENCH).
 - **Benchmark isolation harness.** Every benchmark now installs a clean
   configuration and tears it down. Previously `Benchmark_Log` left the legacy
   map context parser installed, and every benchmark that ran after it in the
-  same binary silently paid for it — which is how the published "2 allocs,
+  same binary silently paid for it. That is how the published "2 allocs,
   ~196 ns/op" hot-path figure was produced.
 - **Performance gate in CI** (`.github/workflows/bench.yml`), including a job
   that builds and vets every example module. The gate's regression check is now
@@ -152,7 +152,7 @@ uncovered.
 
 ### Changed
 
-- **BREAKING — one `Write` per flush batch.** An `io.Writer` registered through
+- BREAKING, one `Write` per flush batch. An `io.Writer` registered through
   `SetOutput` now receives the whole newline-delimited batch in a single
   `Write` instead of one call per record. Line-oriented sinks are unaffected; a
   sink that treated each `Write` as exactly one record must split on `"\n"`.
@@ -164,7 +164,7 @@ uncovered.
   received an event. Use
   `pipelineStage.EventPreProcessorObj.RegisterHook(level, hook)`.
 - **Deprecated `config.SetContextFieldsParser`** in favour of
-  `SetContextFields` — ~1,144 ns/op versus ~558 ns/op at ten fields.
+  `SetContextFields`: ~1,144 ns/op versus ~558 ns/op at ten fields.
 - CI now tests Go 1.22 through 1.26.
 
 ### Performance
@@ -186,7 +186,7 @@ Apple M1 Pro, `GOMAXPROCS=8`, Go 1.26, isolated benchmarks:
 
 Against other loggers (`examples/bench`, 10 context fields, `io.Discard`):
 zerolog ~92 ns/op parallel, LogNugget ~347 ns/op, logrus ~6,155 ns/op. With a
-real sink — Loki over HTTP at 10k rps — LogNugget sustains 6,016 rps at p95
+real sink (Loki over HTTP at 10k rps) LogNugget sustains 6,016 rps at p95
 417 ms with no errors, against zerolog's 1,094 rps at p95 4.72 s with 0.62%
 errors.
 

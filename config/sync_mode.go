@@ -14,7 +14,7 @@ var syncModeAtomic atomic.Bool
 //
 // Default (false): the record is pushed onto the lock-free MPSC ring and a
 // background goroutine delivers it. The caller returns without touching the
-// sink — this is the behaviour the rest of the library is designed around, and
+// sink. This is the behaviour the rest of the library is designed around, and
 // the reason handler latency is independent of how slow the sink is.
 //
 // When true: the caller delivers the record to the pre-processors itself and
@@ -29,8 +29,8 @@ var syncModeAtomic atomic.Bool
 // the existing dispatch inline removes the ring without changing what a record
 // does once published.
 //
-// Choose sync mode only when the sink is fast and local — an in-memory buffer,
-// a discard writer, a file on a warm page cache — and single-call latency
+// Choose sync mode only when the sink is fast and local (an in-memory buffer,
+// a discard writer, a file on a warm page cache) and single-call latency
 // matters more than isolation from the sink. With a network sink it is the
 // wrong choice: every logging goroutine then blocks on that sink, which is the
 // failure mode LogNugget exists to avoid (see the Loki benchmark in the
