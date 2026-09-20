@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Performance gate for the sub-1µs SLO.
 # - Runs all package benchmarks.
-# - Fails if any benchmark mean exceeds the latency budget (default 1,000 ns/op = 1 µs).
+# - Fails if any benchmark's mean across the -count runs exceeds the latency budget
+#   (default 1,000 ns/op = 1 µs).
 # - Fails when a benchmark is more than BENCH_REGRESSION_TOL slower than ./bench-baseline.txt.
 #
 # Usage:
@@ -69,16 +70,28 @@ echo "bench-check: running benchmarks (threshold ${THRESHOLD_NS} ns/op = $(echo 
 go test -tags testing -bench=. -benchmem -count=10 -p 1 -run='^$' "$PACKAGES" | tee "$NEW_FILE"
 
 # Latency hard ceiling check (excluded benchmarks still run; only exempt from the ceiling).
+#
+# The ceiling applies to each benchmark's mean across the -count=10 runs, not
+# to individual iterations. why: a single noisy sample — a GC cycle, another
+# process waking up, the laptop throttling — used to fail the gate on an
+# unchanged tree. The SLO is a statement about what a log call typically
+# costs, and the mean over ten runs is the measurement of that.
 violations="$(awk -v thr="$THRESHOLD_NS" -v excl="$EXCLUDE_RE" '
   /^Benchmark/ {
     name=$1
-    nsop=$3 + 0
     if (excl != "" && name ~ excl) next
-    if (nsop > thr) {
-      printf "  %s = %.0f ns/op (threshold %d)\n", name, nsop, thr
+    sum[name] += $3
+    n[name]++
+  }
+  END {
+    for (name in sum) {
+      mean = sum[name] / n[name]
+      if (mean > thr) {
+        printf "  %s = %.0f ns/op mean of %d runs (threshold %d)\n", name, mean, n[name], thr
+      }
     }
   }
-' "$NEW_FILE")"
+' "$NEW_FILE" | sort)"
 
 if [ -n "$violations" ]; then
   echo "" >&2
