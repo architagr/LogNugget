@@ -8,17 +8,9 @@ package entry_test
 import (
 	"context"
 	"testing"
-	"time"
 
-	"github.com/architagr/lognugget/config"
 	"github.com/architagr/lognugget/entry"
-	"github.com/architagr/lognugget/enum"
-	pipelineStage "github.com/architagr/lognugget/pipeline_stage"
 )
-
-type bufferSizeBenchWriter struct{}
-
-func (w *bufferSizeBenchWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 // BenchmarkBufferSeverance measures the allocation bytes per call on the hot
 // path after the P8 change: the replacement buffer created at severance is
@@ -29,20 +21,11 @@ func (w *bufferSizeBenchWriter) Write(p []byte) (int, error) { return len(p), ni
 // Budget defended: B/op must be ≤ 64 B (pool.Get amortised to 0 on warm path);
 // overall ns/op must remain < 1000 (sub-1 µs SLO per CLAUDE.md §Performance Gate).
 func BenchmarkBufferSeverance(b *testing.B) {
-	b.StopTimer()
-	out := &bufferSizeBenchWriter{}
-	config.SetMinLevel(enum.LevelDebug)
-	config.SetEncoderType(enum.EncoderJSON)
-	unset := pipelineStage.NewUnsetLogEventPostProcessor(2*time.Second, 1000, out)
-	pipelineStage.EventPreProcessorObj.RegisterHook(enum.LevelUnSet, unset)
-	config.InitPreProcessors(pipelineStage.EventPreProcessorObj)
-	entry.GenerateInitialPool(10_000)
-	b.Cleanup(unset.Stop)
+	setupEntryBench(b, entryBenchOpts{bucketSize: 1000})
 
 	ctx := context.Background()
 	b.ReportAllocs()
 	b.ResetTimer()
-	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		entry.NewLogEntry().Debug(ctx, "typical structured log message")
 	}

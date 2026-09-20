@@ -2,10 +2,8 @@ package benchmark
 
 import (
 	"context"
-	"runtime"
 	"testing"
 
-	"github.com/architagr/lognugget/config"
 	"github.com/architagr/lognugget/entry"
 	"github.com/architagr/lognugget/enum"
 )
@@ -16,8 +14,7 @@ import (
 //
 // Target: < 80 ns, 0 allocs (see LLD §3.2).
 func Benchmark_Log_Filtered_BelowMinLevel(b *testing.B) {
-	config.SetMinLevel(enum.LevelError) // only Error+ passes
-	entry.GenerateInitialPool(runtime.GOMAXPROCS(0) * 64)
+	setupBench(b, benchOpts{minLevel: enum.LevelError}) // only Error+ passes
 
 	ctx := context.Background()
 	b.ReportAllocs()
@@ -31,8 +28,7 @@ func Benchmark_Log_Filtered_BelowMinLevel(b *testing.B) {
 // Benchmark_Log_Filtered_BelowMinLevel_Parallel is the parallel variant of
 // the filtered-path bench.
 func Benchmark_Log_Filtered_BelowMinLevel_Parallel(b *testing.B) {
-	config.SetMinLevel(enum.LevelError)
-	entry.GenerateInitialPool(runtime.GOMAXPROCS(0) * 64)
+	setupBench(b, benchOpts{minLevel: enum.LevelError})
 
 	ctx := context.Background()
 	b.ReportAllocs()
