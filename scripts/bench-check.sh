@@ -22,12 +22,26 @@
 #                            deleting the comparison.
 #                        Timestamp_Direct was exempt until the benchmarks were given a production-shaped
 #                        entry pool; it now runs at ~320 ns/op and is held to the ceiling like the rest.
+#   BENCH_REGRESSION_TOL how much slower than the baseline a benchmark may get before the gate
+#                        fails, as a multiplier. Default 1.25 (25%) — enough to absorb runner noise
+#                        and thermal drift, far below a real regression on this hot path.
+#   BENCH_REGRESSION_MIN_NS  a regression must also be at least this many ns/op in absolute terms.
+#                        Default 50. why: a contended micro-benchmark like RingBuffer_Push swings
+#                        94 → 133 ns between runs — 42%, and 39 ns of a 1,000 ns budget. Without an
+#                        absolute floor the gate cries wolf on noise while a real hot-path
+#                        regression (25% of ~330 ns = 80+ ns) still trips it.
+#
+# Benchmarks run with -p 1. why: `go test ./...` runs package test binaries in parallel, so
+# benchmarks in different packages compete for the same cores and the same code measures 25-40%
+# differently depending on how the packages happen to overlap. Serialising them costs wall-clock
+# time and buys numbers that can be compared between runs.
 
 set -euo pipefail
 
 THRESHOLD_NS="${BENCH_THRESHOLD_NS:-1000}"
 PACKAGES="${BENCH_PACKAGES:-./...}"
-REGRESSION_TOLERANCE="${BENCH_REGRESSION_TOL:-1.20}"
+REGRESSION_TOLERANCE="${BENCH_REGRESSION_TOL:-1.25}"
+REGRESSION_MIN_NS="${BENCH_REGRESSION_MIN_NS:-50}"
 EXCLUDE_RE="${BENCH_EXCLUDE_RE:-AddSourceTrue|CtxParser}"
 BASELINE_FILE="bench-baseline.txt"
 NEW_FILE="$(mktemp -t bench-new.XXXXXX)"
@@ -46,13 +60,13 @@ fi
 
 if [ "${1:-}" = "--update-baseline" ]; then
   echo "bench-check: updating baseline at $BASELINE_FILE"
-  go test -tags testing -bench=. -benchmem -count=10 -run='^$' "$PACKAGES" | tee "$BASELINE_FILE"
+  go test -tags testing -bench=. -benchmem -count=10 -p 1 -run='^$' "$PACKAGES" | tee "$BASELINE_FILE"
   echo "bench-check: baseline updated. Commit it with the PR that justified the change."
   exit 0
 fi
 
 echo "bench-check: running benchmarks (threshold ${THRESHOLD_NS} ns/op = $(echo "scale=3; $THRESHOLD_NS/1000" | bc) µs; excluding ceiling for: ${EXCLUDE_RE:-none})"
-go test -tags testing -bench=. -benchmem -count=10 -run='^$' "$PACKAGES" | tee "$NEW_FILE"
+go test -tags testing -bench=. -benchmem -count=10 -p 1 -run='^$' "$PACKAGES" | tee "$NEW_FILE"
 
 # Latency hard ceiling check (excluded benchmarks still run; only exempt from the ceiling).
 violations="$(awk -v thr="$THRESHOLD_NS" -v excl="$EXCLUDE_RE" '
@@ -95,9 +109,9 @@ if [ -f "$BASELINE_FILE" ]; then
     echo "             go install golang.org/x/perf/cmd/benchstat@latest" >&2
   fi
 
-  # Mean ns/op per benchmark, baseline vs new. The tolerance absorbs the noise
-  # of a shared CI runner; a real regression on this hot path is far larger.
-  regressions="$(awk -v tol="$REGRESSION_TOLERANCE" '
+  # Mean ns/op per benchmark, baseline vs new. A benchmark must breach both the
+  # relative tolerance and the absolute floor to count as a regression.
+  regressions="$(awk -v tol="$REGRESSION_TOLERANCE" -v minns="$REGRESSION_MIN_NS" '
     function mean(sum, n) { return n > 0 ? sum / n : 0 }
     FNR == NR {
       if ($1 ~ /^Benchmark/) { base_sum[$1] += $3; base_n[$1]++ }
@@ -110,7 +124,7 @@ if [ -f "$BASELINE_FILE" ]; then
         b = mean(base_sum[name], base_n[name])
         n = mean(new_sum[name], new_n[name])
         if (b <= 0) continue
-        if (n > b * tol) {
+        if (n > b * tol && n - b > minns) {
           printf "  %s: %.1f ns/op → %.1f ns/op (%+.1f%%)\n", name, b, n, (n / b - 1) * 100
         }
       }

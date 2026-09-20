@@ -1,6 +1,10 @@
 //go:build testing
 
 // Package support_test exercises the test/support helpers.
+//
+// why (no t.Parallel in this file): every test here drives ConfigBuilder, which
+// mutates the package-global configuration singleton. Run in parallel they
+// overwrite each other's settings — a rare -shuffle=on CI failure.
 package support_test
 
 import (
@@ -21,7 +25,6 @@ import (
 // function, and that the cleanup is registered with t.Cleanup so the
 // singleton resets between tests (acceptance #1, #7, #8).
 func Test_NewConfigBuilder_ChainsAllSettersAndCleansUp(t *testing.T) {
-	t.Parallel()
 
 	var buf testWriter
 	tb := newRecordingTB(t)
@@ -54,7 +57,6 @@ func Test_NewConfigBuilder_ChainsAllSettersAndCleansUp(t *testing.T) {
 // registered with tb.Cleanup actually fires when the test scope ends,
 // guarding against the T-13 singleton-leak class of bug.
 func Test_ConfigBuilder_TBCleanupRunsAutomatically(t *testing.T) {
-	t.Parallel()
 
 	tb := newRecordingTB(t)
 	support.NewConfigBuilder(tb).MinLevel(enum.LevelWarn).Build()
@@ -69,7 +71,6 @@ func Test_ConfigBuilder_TBCleanupRunsAutomatically(t *testing.T) {
 // EntryBuilder records ctx, err, and N synthetic fields, and Build()
 // returns a usable *entry.LogEntry.
 func Test_EntryBuilder_AppliesAllOptions(t *testing.T) {
-	t.Parallel()
 
 	ctx := context.WithValue(context.Background(), ctxKey("k"), "v")
 	bootErr := errors.New("boom")
@@ -91,7 +92,6 @@ func Test_EntryBuilder_AppliesAllOptions(t *testing.T) {
 // key collisions in the synthetic field generator — important for any
 // downstream test that asserts on N distinct fields.
 func Test_EntryBuilder_FieldsHaveDistinctKeys(t *testing.T) {
-	t.Parallel()
 
 	b := support.NewEntryBuilder().WithFields(8)
 	seen := make(map[string]struct{}, 8)
@@ -104,7 +104,6 @@ func Test_EntryBuilder_FieldsHaveDistinctKeys(t *testing.T) {
 
 // Test_EventBuilder_ProducesLogEvent covers acceptance #3.
 func Test_EventBuilder_ProducesLogEvent(t *testing.T) {
-	t.Parallel()
 
 	ev := support.NewEventBuilder().
 		Level(enum.LevelWarn).
