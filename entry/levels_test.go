@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/architagr/lognugget/config"
 	"github.com/architagr/lognugget/entry"
@@ -28,24 +29,26 @@ import (
 	"github.com/architagr/lognugget/test/support"
 )
 
-// drainSpy polls spy.Records() until at least one record is available, then
-// returns the first record's bytes. It fails the test after 500 goroutine-yield
-// iterations.
-//
-// why: config.PublishLog is asynchronous — it sends to a buffered channel
-// consumed by config.ProcessLogEvent in a background goroutine. A short spin
-// is needed before asserting.
+// drainSpy waits for the asynchronous pipeline to deliver, then returns the
+// first record the spy received. It fails the test if nothing arrives.
 func drainSpy(t *testing.T, spy *support.FakePreProc) []byte {
 	t.Helper()
-	for i := 0; i < 500; i++ {
-		recs := spy.Records()
-		if len(recs) > 0 {
+
+	// why: the dispatcher hands events to pre-processors on its own goroutine,
+	// so the record is not there the instant the log call returns. This used
+	// to spin a fixed 500 scheduler yields, which under -race occasionally ran
+	// out before delivery and failed the test. FlushDispatch waits for the
+	// dispatcher to actually catch up.
+	if !config.FlushDispatch(5 * time.Second) {
+		t.Fatal("dispatcher did not drain within 5s")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if recs := spy.Records(); len(recs) > 0 {
 			return recs[0].Data
 		}
-		// Yield to the scheduler without importing time.
-		done := make(chan struct{})
-		go func() { close(done) }()
-		<-done
+		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("timed out waiting for log record; spy was never invoked — check config.InitPreProcessors")
 	return nil

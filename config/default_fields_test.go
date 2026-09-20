@@ -9,6 +9,11 @@
 // key name.
 package config_test
 
+// why (no t.Parallel in this file): every test here reads or mutates the
+// package-global configuration singleton. Running them in parallel let a test
+// that renames default fields observe — or be observed by — a test asserting
+// pristine defaults, which showed up as a rare -shuffle=on CI failure.
+
 import (
 	"bytes"
 	"context"
@@ -86,7 +91,6 @@ func Test_SetDefaultFields_RenamesAndPrerenders(t *testing.T) {
 // Guards against a regression where buildRenderedFields is only called inside
 // SetDefaultFields and the cache is nil on a freshly-reset singleton.
 func Test_DefaultFieldsRendered_PopulatedAtInit(t *testing.T) {
-	t.Parallel()
 
 	rendered := config.GetConfig().DefaultFieldsRendered()
 	if rendered == nil {
@@ -119,7 +123,6 @@ func Test_DefaultFieldsRendered_PopulatedAtInit(t *testing.T) {
 // This ensures buildRenderedFields iterates the full map, not just the five
 // core keys.
 func Test_DefaultFieldsRendered_AllDefaultKeys(t *testing.T) {
-	t.Parallel()
 
 	cfg := config.GetConfig()
 	defaultFields := cfg.DefaultFields()
@@ -254,7 +257,6 @@ func Test_LogEntry_UsesPrerenderedPrefixInOutput(t *testing.T) {
 // structural invariant relied on by entry.logWithSkip when it appends
 // prefix + value + ',' directly.
 func Test_DefaultFieldsRendered_RenderedPrefixIsExactBytes(t *testing.T) {
-	t.Parallel()
 
 	rendered := config.GetConfig().DefaultFieldsRendered()
 	defaultFields := config.GetConfig().DefaultFields()

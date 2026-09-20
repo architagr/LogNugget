@@ -12,6 +12,7 @@ package config
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -153,16 +154,19 @@ func Test_HotSnapshot_NeverNilAfterEverySetterCalled(t *testing.T) {
 // access to hotSnapshotPtr would be reported as a DATA RACE.
 func Test_HotSnapshot_RaceWithSetters(t *testing.T) {
 	TestResetConfig()
-	t.Cleanup(func() { TestResetConfig() })
 
 	const goroutines = 4
 	const iterations = 500
 
-	done := make(chan struct{})
-	defer close(done)
-
+	// why: the writers must be joined before the test returns. They mutate the
+	// package-global config, so letting them outlive the test left SetMinLevel
+	// calls landing during whichever test ran next — a rare -shuffle=on failure
+	// in Test_TestResetConfig_RestoresDefaults ("SetMinLevel did not stick").
+	var wg sync.WaitGroup
 	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				SetTimeFormat("2006-01-02T15:04:05Z07:00")
 				SetMinLevel(enum.LevelDebug)
@@ -170,10 +174,17 @@ func Test_HotSnapshot_RaceWithSetters(t *testing.T) {
 		}()
 	}
 	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				_ = GetHotSnapshot()
 			}
 		}()
 	}
+	wg.Wait()
+
+	// Reset only after every writer has stopped, so the defaults this restores
+	// cannot be overwritten by a straggler.
+	TestResetConfig()
 }

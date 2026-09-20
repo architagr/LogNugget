@@ -2,9 +2,13 @@
 
 // Package config_test exercises static-env and context parser contracts
 // (F15, F16, TS-13, TS-14). All sub-tests share the process-wide config
-// singleton and run sequentially under one parallel parent — same strategy
-// as entry_test.Test_LogEntry_Methods — to prevent races.
+// singleton and run sequentially to prevent races.
 package config_test
+
+// why (no t.Parallel in this file): every test here reads or mutates the
+// package-global configuration singleton. Running them in parallel let a test
+// that renames default fields observe — or be observed by — a test asserting
+// pristine defaults, which showed up as a rare -shuffle=on CI failure.
 
 import (
 	"context"
@@ -45,7 +49,6 @@ func resetParser(t *testing.T, name string) *support.FakePreProc {
 // Test_Parsers groups all static + context parser sub-tests sequentially
 // under one parallel parent to prevent singleton races (TS-13, TS-14).
 func Test_Parsers(t *testing.T) {
-	t.Parallel()
 
 	// TS-13: static env parser
 
