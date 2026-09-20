@@ -311,12 +311,12 @@ func SafeFieldKey(key string) string {
 // AppendAttr is safe for concurrent use; it reads no shared state.
 func AppendAttr(dst []byte, key string, attr model.LogAttr) []byte {
 	// Write the key as a quoted, RFC 8259 escaped JSON string.
-	dst = appendJSONString(dst, []byte(key))
+	dst = appendJSONStringStr(dst, key)
 	dst = append(dst, ':')
 
 	switch attr.Kind() {
 	case model.KindStr:
-		dst = appendJSONString(dst, []byte(attr.StrVal()))
+		dst = appendJSONStringStr(dst, attr.StrVal())
 
 	case model.KindInt:
 		dst = strconv.AppendInt(dst, attr.IntVal(), 10)
@@ -343,7 +343,7 @@ func AppendAttr(dst []byte, key string, attr model.LogAttr) []byte {
 		// call sites. New callers should use the typed constructors.
 		switch v := attr.Value.(type) {
 		case string:
-			dst = appendJSONString(dst, []byte(v))
+			dst = appendJSONStringStr(dst, v)
 		case int:
 			dst = strconv.AppendInt(dst, int64(v), 10)
 		case int8:

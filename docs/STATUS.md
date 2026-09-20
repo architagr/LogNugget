@@ -1,6 +1,6 @@
 # LogNugget — Live Status Dashboard
 
-> **Last updated:** 2026-09-20 (Epic V4 in progress on `feat/v4-beat-zerolog`; numbers below re-measured with isolated benchmarks)
+> **Last updated:** 2026-09-20 (Epic V4 released as v4.0.0; numbers below re-measured with isolated benchmarks)
 > **v1.0.0:** Released ✅ — [tag v1.0.0](https://github.com/architagr/LogNugget/releases/tag/v1.0.0) · [PR #80](https://github.com/architagr/LogNugget/pull/80) (merged)
 > **Umbrella:** [#12](https://github.com/architagr/LogNugget/issues/12)
 
@@ -344,7 +344,7 @@ SLO miss (hot-path 2× over 1 µs) does NOT block v1.0.0 per project decision �
 
 ## Epic V4 — Beat zerolog under real IO, and be correct while doing it
 
-> **Branch:** `feat/v4-beat-zerolog` · **Status:** 🚧 IN PROGRESS — not yet merged to `develop`
+> **Released:** v4.0.0 · merged via PR [#138](https://github.com/architagr/LogNugget/pull/138)
 
 V4 began as a pure performance epic (dispatch buffer pool, single-slab entry,
 chain methods). Re-measuring it honestly turned it into a correctness epic as
